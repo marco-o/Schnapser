@@ -132,6 +132,32 @@ models/neural_player/   the Neural player (four networks plus the bidder)
 scripts/        install, build, start, test
 ```
 
+## Card pictures
+
+The card faces (William Tell pattern) are in
+`client/public/cards/<rank><suit>.webp`, about 90 × 148 px each with
+transparent corners. The rank is A, K, Q (Ober), J (Unter) or T (Zehn); the
+suit is c (Kreuz), s (Pik), h (Herz) or d (Caro).
+
+They were cut from `Docker/Pictures/schnapser-1.png` with
+`scripts/cut_cards.py`. That sheet shows separate cards on a transparent
+background: the rows are, top to bottom, Caro, Herz, Pik and Kreuz; the
+columns are, left to right, Zehn, Unter, Ober, König and As. To recut them,
+after `pip install pillow` in the venv:
+
+```bash
+scripts/run_py.sh ../scripts/cut_cards.py /path/to/schnapser-1.png ../client/public/cards \
+  --transparent --rows dhsc --cols TJQKA
+```
+
+The script can also cut a photo of the cards on a table, finding,
+straightening and trimming each card (its defaults fit the earlier
+`Docker/Pictures/Schnapser.png`).
+
+The table draws them through the schnaps skin's `faceImage`
+(`client/src/gui/games/schnaps/schnaps_view.ts`). Face-down cards keep the
+card library's back.
+
 ## What was copied from the development tree
 
 The schnaps pieces built during development were **copied** here, so the

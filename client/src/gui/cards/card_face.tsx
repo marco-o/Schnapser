@@ -66,9 +66,12 @@ export function CardFace({
     card === null ? 'playing-card playing-card--back' : 'playing-card';
   const tone = card === null ? undefined : skin.suitTone(card.suit);
   const glyph = card === null ? '' : skin.suitGlyph(card.suit);
+  const art = card === null ? undefined : skin.faceImage?.(card);
   const face =
     card === null ? (
       <FaceDownArt />
+    ) : art !== undefined ? (
+      <img className="playing-card__art" src={art} alt="" draggable={false} />
     ) : (
       <>
         <span className="playing-card__index" aria-hidden="true">

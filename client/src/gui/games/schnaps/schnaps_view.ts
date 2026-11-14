@@ -194,5 +194,8 @@ function schnapsSkin(): Skin {
     suitTone: suit => (suit === 'h' || suit === 'd' ? 'red' : 'black'),
     cardName: ({rank, suit}) =>
       `${SUIT_NAMES[suit]} ${RANK_NAMES[rank] ?? rank}`,
+    // schnaps-web: the photographed deck (client/public/cards, cut from a
+    // photo by scripts/cut_cards.py), served at /cards/<rank><suit>.webp.
+    faceImage: ({rank, suit}) => `/cards/${rank}${suit}.webp`,
   };
 }

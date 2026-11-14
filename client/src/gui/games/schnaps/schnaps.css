@@ -182,3 +182,20 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* schnaps-web: the card pictures are taller (about 5 : 8). The other
+   players' face-down hands are drawn smaller and fanned tighter, so the
+   side hands fit the table. */
+.schnaps .playing-card {
+  width: 66px;
+  height: 106px;
+}
+
+.schnaps .playing-card--back {
+  width: 46px;
+  height: 74px;
+}
+
+.schnaps .card-row__cards[data-fanned='true'] > .playing-card + .playing-card {
+  margin-left: -32px;
+}

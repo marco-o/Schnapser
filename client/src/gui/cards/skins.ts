@@ -32,6 +32,11 @@ export interface Skin {
   suitTone(suit: Suit): SuitTone;
   /** The accessible name of a card: "Ace of spades". */
   cardName(card: Card): string;
+  /**
+   * The URL of a picture of the card's face, drawn instead of the index and
+   * pip (schnaps-web: the photographed deck); absent for glyph skins.
+   */
+  faceImage?(card: Card): string;
 }
 
 const GLYPHS: Record<Suit, string> = {s: '♠', h: '♥', d: '♦', c: '♣'};
