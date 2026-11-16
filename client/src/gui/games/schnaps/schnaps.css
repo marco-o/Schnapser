@@ -227,3 +227,23 @@
   width: 60px;
   height: 96px;
 }
+
+/* schnaps-web: the deck's suit signs (client/public/suits). */
+.schnaps-suit {
+  height: 1.35em;
+  vertical-align: middle;
+}
+
+.schnaps-moves .button--suit {
+  min-width: 52px;
+  min-height: 52px;
+  padding: 4px;
+}
+
+.schnaps-moves .button--suit .schnaps-suit {
+  height: 40px;
+}
+
+.schnaps-info .schnaps-suit {
+  height: 24px;
+}

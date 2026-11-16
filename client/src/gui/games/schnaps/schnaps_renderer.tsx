@@ -24,6 +24,7 @@
 
 import type {JSX} from 'react';
 
+import type {Suit} from '../../cards/card.ts';
 import {CardFace} from '../../cards/card_face.tsx';
 import {cardActions} from '../../cards/card_hints.ts';
 import {Hand} from '../../cards/hand.tsx';
@@ -36,7 +37,6 @@ import {
   type SchnapsPlay,
   type SchnapsView,
   readSchnapsView,
-  suitGlyph,
   suitName,
 } from './schnaps_view.ts';
 
@@ -108,7 +108,13 @@ function InfoBox({view}: {readonly view: SchnapsView}): JSX.Element {
       <div className="schnaps-info__item">
         <dt>Trump</dt>
         <dd>
-          {trump === null ? '—' : `${suitGlyph(trump)} ${suitName(trump)}`}
+          {trump === null ? (
+            '—'
+          ) : (
+            <>
+              <SuitIcon suit={trump} /> {suitName(trump)}
+            </>
+          )}
         </dd>
       </div>
       <div className="schnaps-info__item">
@@ -136,7 +142,28 @@ function InfoBox({view}: {readonly view: SchnapsView}): JSX.Element {
 
 /** A 20 or 40 as the table names it: "40 ♥ Herz". */
 function declarationText(d: SchnapsDeclaration): string {
-  return `${String(d.points)} ${suitGlyph(d.suit)} ${suitName(d.suit)}`;
+  return `${String(d.points)} ${suitName(d.suit)}`;
+}
+
+// schnaps-web: the suits are drawn with the deck's own suit signs
+// (client/public/suits, cut by scripts/cut_suits.py), not French glyphs.
+const TRUMP_SUITS: readonly Suit[] = ['h', 'd', 's', 'c']; // actions 28..31
+
+/** The suit a trump-choice action names, or null for any other action. */
+function trumpOfAction(action: number): Suit | null {
+  return action >= 28 && action < 32 ? (TRUMP_SUITS[action - 28] ?? null) : null;
+}
+
+/** A suit's sign as a picture, named for screen readers. */
+function SuitIcon({suit}: {readonly suit: Suit}): JSX.Element {
+  return (
+    <img
+      className="schnaps-suit"
+      src={`/suits/${suit}.png`}
+      alt={suitName(suit)}
+      draggable={false}
+    />
+  );
 }
 
 /** The trick in play, or the last one, each card before its player. */
@@ -173,7 +200,9 @@ function TrickArea({
       ))}
       {announced !== undefined && (
         <p className="schnaps-announce" role="status">
-          {`${seatName(announced.seat)}: ${declarationText(announced)}`}
+          {`${seatName(announced.seat)}: ${String(announced.points)} `}
+          <SuitIcon suit={announced.suit} />
+          {` ${suitName(announced.suit)}`}
         </p>
       )}
       <p className="schnaps-trick__caption">{caption}</p>
@@ -245,19 +274,25 @@ function MoveButtons({
   if (buttons.length === 0) return null;
   return (
     <div className="schnaps-moves" role="group" aria-label="Moves">
-      {buttons.map(({action, hint: text}) => (
-        <button
-          type="button"
-          className="button"
-          key={action}
-          disabled={play === null}
-          onClick={() => {
-            play?.(action);
-          }}
-        >
-          {text}
-        </button>
-      ))}
+      {buttons.map(({action, hint: text}) => {
+        // schnaps-web: a trump choice shows the suit's picture, not its name.
+        const trump = trumpOfAction(action);
+        return (
+          <button
+            type="button"
+            className={trump === null ? 'button' : 'button button--suit'}
+            key={action}
+            disabled={play === null}
+            aria-label={text}
+            title={text}
+            onClick={() => {
+              play?.(action);
+            }}
+          >
+            {trump === null ? text : <SuitIcon suit={trump} />}
+          </button>
+        );
+      })}
     </div>
   );
 }

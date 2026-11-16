@@ -171,6 +171,15 @@ The table draws them through the schnaps skin's `faceImage`
 (`client/src/gui/games/schnaps/schnaps_view.ts`). Face-down cards keep the
 card library's back.
 
+The suit signs (acorn, leaf, bell, heart) in `client/public/suits/<suit>.png`
+replace the French suit glyphs: for the trump in the table's corner, on the
+trump-choice buttons and in the 20/40 announcements. They were cut from
+`Docker/Pictures/suits.png` (left to right: Kreuz, Pik, Caro, Herz) with:
+
+```bash
+scripts/run_py.sh ../scripts/cut_suits.py /path/to/suits.png ../client/public/suits
+```
+
 ## What was copied from the development tree
 
 The schnaps pieces built during development were **copied** here, so the
