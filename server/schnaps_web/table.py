@@ -265,7 +265,7 @@ class Table:
       bot = self._bots[s.bot]
       moves = len(deal.state.history())
       action = await asyncio.to_thread(
-          bot.choose, deal.state.clone(), deal.game_seat(seat)
+          bot.choose, deal.state.clone(), deal.game_seat(seat), self.set_need()
       )
       if self.deal is not deal or len(deal.state.history()) != moves:
         continue  # the table moved on meanwhile
@@ -273,6 +273,18 @@ class Table:
         continue
       deal.apply(seat, action)
       self._changed()
+
+  def set_need(self) -> Optional[tuple[int, int]]:
+    """Points each game partnership still needs in the set (bots' view).
+
+    Game partnership 0 is game seats 0 and 2 (the Caller's); it is the table
+    pair of the Caller, which changes with the dealer. None without a deal.
+    """
+    if self.match is None or self.deal is None:
+      return None
+    caller_pair = match_lib.pair_of(match_lib.table_seat(0, self.deal.dealer))
+    need = self.match.need
+    return (need[caller_pair], need[1 - caller_pair])
 
   def _wake(self) -> None:
     if self.closed:

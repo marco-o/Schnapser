@@ -95,3 +95,28 @@ def test_moves_out_of_turn_or_illegal_are_refused(game):
   with pytest.raises(deal_lib.DealError):
     finished.apply(0, 0)
   assert finished.frame(0)["returns"] is not None
+
+
+def test_declarations_are_in_every_view(game):
+  # Find deals where a 20 or 40 is declared (actions 20..27).
+  seen = 0
+  for seed in range(400):
+    d = _random_deal(game, seed % 4, 1000 + seed)
+    hist = [
+        (i.player, i.action) for i in d.state.full_history() if i.player >= 0
+    ]
+    decl = [(p, a) for p, a in hist if 20 <= a < 28]
+    if not decl:
+      continue
+    seen += 1
+    for viewer in (None, 0, 2):
+      view = d.frame(viewer)["presentation"]["view"]
+      got = view["declarations"]
+      assert [g["seat"] for g in got] == [p for p, _ in decl]
+      for g, (_, a) in zip(got, decl):
+        assert g["points"] in (20, 40)
+        assert g["suit"] == "hdsc"[(a - 20) // 2]
+        assert 0 <= g["trick"] < 5
+    if seen >= 5:
+      break
+  assert seen >= 1

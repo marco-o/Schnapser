@@ -94,3 +94,25 @@ def test_exactly_zero_wins_the_set():
   match.need = [3, 31]
   out = match.record([3, -3, 3, -3], "Normal", None, 0)
   assert out["set_winner"] == 0
+
+
+def test_the_table_gives_bots_the_set_in_game_partnership_order():
+  import random as random_lib  # pylint: disable=g-import-not-at-top
+
+  import pyspiel  # pylint: disable=g-import-not-at-top
+
+  from schnaps_web import config  # pylint: disable=g-import-not-at-top
+  from schnaps_web import deal as deal_lib  # pylint: disable=g-import-not-at-top
+  from schnaps_web import table as table_lib  # pylint: disable=g-import-not-at-top
+
+  game = pyspiel.load_game(deal_lib.GAME_STRING)
+  t = table_lib.Table("t", "T", {}, config.Settings(), game, random_lib.Random(0))
+  assert t.set_need() is None
+  t.match = m.Match(dealer=3)
+  t.match.need = [5, 20]  # pair 0 (South-North) needs 5
+  # Dealer 3: the Caller is table seat 0 (pair 0), game partnership 0.
+  t.deal = deal_lib.Deal(game, 3, random_lib.Random(0))
+  assert t.set_need() == (5, 20)
+  # Dealer 0: the Caller is table seat 1 (pair 1).
+  t.deal = deal_lib.Deal(game, 0, random_lib.Random(0))
+  assert t.set_need() == (20, 5)

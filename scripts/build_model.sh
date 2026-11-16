@@ -1,6 +1,8 @@
 #!/bin/bash
 # Assembles models/neural_player/0 from the trained networks in ~ (one time).
+# The bid rule is set_aware (it uses the set score); extra args are passed on,
+# e.g. --overwrite to rebuild.
 set -e
 . "$(dirname "$0")/env.sh"
 cd "$SITE/server"
-python -m schnaps_web.tools.build_player "$@"
+python -m schnaps_web.tools.build_player --rule set_aware "$@"

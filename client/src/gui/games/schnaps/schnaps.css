@@ -199,3 +199,31 @@
 .schnaps .card-row__cards[data-fanned='true'] > .playing-card + .playing-card {
   margin-left: -32px;
 }
+
+/* A 20 or 40 announced on the felt, over the trick it led. */
+.schnaps-announce {
+  position: absolute;
+  top: 4px;
+  left: 50%;
+  margin: 0;
+  padding: 2px 10px;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  background: rgb(0 0 0 / 0.35);
+  color: #ffe066;
+  font-size: 1.1em;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+/* schnaps-web: the trick area fits the taller card pictures. */
+.schnaps-trick {
+  position: relative;
+  grid-template-columns: 70px 84px 70px;
+  grid-template-rows: 102px 102px 102px;
+}
+
+.schnaps .schnaps-trick .playing-card {
+  width: 60px;
+  height: 96px;
+}

@@ -32,6 +32,7 @@ import {field, record, string} from '../../renderers/struct_reader.ts';
 import type {Frame, Presentation} from '../../table_types.ts';
 import {
   SCHNAPS_SKIN,
+  type SchnapsDeclaration,
   type SchnapsPlay,
   type SchnapsView,
   readSchnapsView,
@@ -133,6 +134,11 @@ function InfoBox({view}: {readonly view: SchnapsView}): JSX.Element {
   );
 }
 
+/** A 20 or 40 as the table names it: "40 ♥ Herz". */
+function declarationText(d: SchnapsDeclaration): string {
+  return `${String(d.points)} ${suitGlyph(d.suit)} ${suitName(d.suit)}`;
+}
+
 /** The trick in play, or the last one, each card before its player. */
 function TrickArea({
   view,
@@ -143,6 +149,10 @@ function TrickArea({
 }): JSX.Element {
   const last = view.trick.length === 0 ? view.lastTrick : null;
   const showingLast = last !== null;
+  // The 20 or 40 that led the trick shown, announced on the felt.
+  const done = (view.tricks[0] ?? 0) + (view.tricks[1] ?? 0);
+  const shownTrick = showingLast ? done - 1 : done;
+  const announced = view.declarations.find(d => d.trick === shownTrick);
   const plays: readonly SchnapsPlay[] = last === null ? view.trick : last.cards;
   const caption =
     last === null ? 'Trick' : `Last trick: ${seatName(last.winner)} won`;
@@ -161,6 +171,11 @@ function TrickArea({
           <CardFace code={play.card} skin={SCHNAPS_SKIN} />
         </div>
       ))}
+      {announced !== undefined && (
+        <p className="schnaps-announce" role="status">
+          {`${seatName(announced.seat)}: ${declarationText(announced)}`}
+        </p>
+      )}
       <p className="schnaps-trick__caption">{caption}</p>
     </section>
   );
@@ -193,6 +208,10 @@ function SeatArea({
     roles.length === 0
       ? seatName(seat)
       : `${seatName(seat)} (${roles.join(', ')})`;
+  const said = view.declarations
+    .filter(d => d.seat === seat)
+    .map(declarationText)
+    .join(', ');
   return (
     <div
       className="schnaps-seat"
@@ -200,7 +219,7 @@ function SeatArea({
       data-active={view.toMove === seat ? 'true' : undefined}
     >
       <Hand
-        label={label}
+        label={said ? `${label} · ${said}` : label}
         cards={entry?.cards ?? []}
         playable={playable}
         play={play}

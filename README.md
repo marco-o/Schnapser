@@ -21,6 +21,19 @@ enter a nickname, and then:
   - Contracts: Schnapser 6, Lomt 9, Bauern 12, Jodler 18, Hermort 24.
   - Each fleck doubles the points.
   - A failed contract scores for the opponents.
+- **Contracts end as soon as they are decided:**
+  - **Schnapser:** the declarer's pair must win each of the first three
+    tricks and reach 66 by then. The deal stops at the first trick the
+    defenders win.
+  - **Lomt and Bauern:** the deal stops at the first trick the declarer
+    doesn't win.
+- **20 and 40:** a declaration shows on the green table over the trick it
+  leads ("Anna: 40 ♥ Herz"), and next to the player's name for the rest of
+  the deal.
+- **The Neural player bids with the set in mind.** It values a bid only by
+  the points that still count for the set. It flecks only when the fleck
+  can't cost the set (the other side needs no more points than the contract
+  is worth, e.g. 9 or less against a Lomt), or when it's at least 75% sure.
 - **Between deals:** the result shows for 5 seconds, then the next deal
   starts.
 - **Disconnects:** the table waits for the player to come back. Reloading
@@ -184,8 +197,6 @@ Both come from `Docker/open_spiel` (its venv and `build/python`).
 ## Not done yet
 
 - Elena as a selectable bot: one entry in `bots.py`.
-- Bidding that takes the set score into account. The table knows each
-  pair's points, but the bot doesn't receive them yet.
 - Saving tables across restarts.
 - Docker packaging.
 - Chat.
