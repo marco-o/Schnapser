@@ -30,6 +30,9 @@ the forced-contract networks (--forced_dir_prefix, default
 as parents. Steps here only label variants. The artifact plays wherever a
 checkpoint does: examples/schnaps_vs_elena.py, the GUI's play launcher.
 An existing step is replaced only with --overwrite.
+
+schnaps-web: --part <name>=<checkpoint> replaces one part's source, e.g.
+--part schnapser=~/schnaps_forced_schnapser_r2@500 (repeatable).
 """
 
 import argparse
@@ -140,6 +143,10 @@ def main(argv=None) -> None:
   p.add_argument("--normal", default="~/schnaps_normal@4000")
   p.add_argument("--forced_dir_prefix", default="~/schnaps_forced_")
   p.add_argument("--forced_step", type=int, default=1000)
+  p.add_argument(
+      "--part", action="append", default=[], metavar="NAME=CHECKPOINT",
+      help="replace one part's source (repeatable)",
+  )
   p.add_argument("--out_dir", default=DEFAULT_OUT_DIR)
   p.add_argument("--step", type=int, default=0)
   p.add_argument(
@@ -153,6 +160,14 @@ def main(argv=None) -> None:
   sources = {"normal": a.normal}
   for n in player_lib.PART_NAMES[1:]:
     sources[n] = f"{a.forced_dir_prefix}{n}@{a.forced_step}"
+  for spec in a.part:
+    name, sep, src = spec.partition("=")
+    if not sep or name not in sources:
+      sys.exit(
+          f"--part {spec!r}: expected <part>=<checkpoint>, part one of "
+          f"{list(sources)}"
+      )
+    sources[name] = src
   rule_kwargs = {}
   if a.margin is not None:
     if a.rule != "greedy":

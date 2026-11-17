@@ -67,8 +67,15 @@ Everything runs in the WSL distro **Ubuntu**, from PowerShell.
    ```
 
 The model is already in `models/neural_player`. To rebuild it from the
-trained networks in `~` (`~/schnaps_normal@4000`,
-`~/schnaps_forced_*@1000`), run `scripts/build_model.sh`.
+trained networks in `~`, run `scripts/build_model.sh --overwrite`. It uses:
+
+- `~/schnaps_normal@4000` for the Normal game;
+- `~/schnaps_forced_lomt@1000` and `~/schnaps_forced_bauern@1000`;
+- `~/schnaps_forced_schnapser_r2@500` for Schnapser. This network was
+  retrained after the rule change (the deal ends at the defenders' first
+  trick), so its win estimate, which drives the bid, matches the new rule.
+
+`--part <name>=<checkpoint>` swaps one part's network.
 
 Settings are environment variables `SCHNAPS_WEB_<NAME>`, for example
 `SCHNAPS_WEB_BOT_DELAY=0.5` (seconds before each bot move),
@@ -194,7 +201,7 @@ licence headers.
 | `server/schnaps_web/game/elena.py` | `python/scale/envs/schnaps_elena.py`, policy only (arch `schnaps_web.elena`, not offered yet) |
 | `server/schnaps_web/tools/build_player.py` | `python/scale/examples/schnaps_build_player.py` |
 | `client/src/gui/` | `gui/src/games/schnaps/`, `gui/src/cards/`, and the helpers they use. The renderer takes nicknames and draws your seat at the bottom |
-| `models/neural_player/` | built from `~/schnaps_normal@4000` and `~/schnaps_forced_*@1000` |
+| `models/neural_player/` | built from `~/schnaps_normal@4000`, `~/schnaps_forced_{lomt,bauern}@1000` and `~/schnaps_forced_schnapser_r2@500` |
 
 Still used as installed libraries (not copied):
 
