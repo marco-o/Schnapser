@@ -5,7 +5,7 @@ enter a nickname, and then:
 
 - **start a table**, or **take a free seat** at someone else's (also during
   a running match), or **watch** any table;
-- if you created the table, **fill seats** with the Neural player bot,
+- if you created the table, **fill seats** with the Basic or Large bot,
   remove bots, and **start the match** once all four seats are filled.
 
 **How a match runs:**
@@ -30,7 +30,11 @@ enter a nickname, and then:
 - **20 and 40:** a declaration shows on the green table over the trick it
   leads ("Anna: 40 ♥ Herz"), and next to the player's name for the rest of
   the deal.
-- **The Neural player bids with the set in mind.** It values a bid only by
+- **Two bots: Basic and Large.** They share the bidder and the
+  Schnapser, Lomt and Bauern networks. They differ in the Normal-game
+  network: Basic has the compact one trained on the laptop, Large the bigger
+  one trained on a rented GPU (Docker/gpu-training.md, step 4).
+- **Both bots bid with the set in mind.** It values a bid only by
   the points that still count for the set. It flecks only when the fleck
   can't cost the set (the other side needs no more points than the contract
   is worth, e.g. 9 or less against a Lomt), or when it's at least 75% sure.
@@ -59,14 +63,14 @@ Everything runs in the WSL distro **Ubuntu**, from PowerShell.
    wsl -d Ubuntu -- bash /mnt/c/Users/marco/Documents/git/Docker/schnaps-web/scripts/build_client.sh
    ```
 
-3. **Start the site.** It takes about 30 s while the Neural player loads and
-   compiles. Then open <http://localhost:8000>. Ctrl-C stops it.
+3. **Start the site.** It takes about a minute while the Basic and Large
+   players load and compile. Then open <http://localhost:8000>. Ctrl-C stops it.
 
    ```powershell
    wsl -d Ubuntu -- bash /mnt/c/Users/marco/Documents/git/Docker/schnaps-web/scripts/start_site.sh
    ```
 
-The model is already in `models/neural_player`. To rebuild it from the
+The Basic player is in `models/basic_player`. To rebuild it from the
 trained networks in `~`, run `scripts/build_model.sh --overwrite`. It uses:
 
 - `~/schnaps_normal@4000` for the Normal game;
@@ -76,6 +80,11 @@ trained networks in `~`, run `scripts/build_model.sh --overwrite`. It uses:
   trick), so its win estimate, which drives the bid, matches the new rule.
 
 `--part <name>=<checkpoint>` swaps one part's network.
+
+The Large player is in `models/large_player`: `scripts/build_large.sh
+--overwrite` builds it with the same parts except the Normal network,
+`~/schnaps_normal_big_gpu@1000` (`LARGE_NORMAL=<dir>@<step>` picks another).
+The site offers Large only when that folder is built.
 
 Settings are environment variables `SCHNAPS_WEB_<NAME>`, for example
 `SCHNAPS_WEB_BOT_DELAY=0.5` (seconds before each bot move),
@@ -139,16 +148,17 @@ server/schnaps_web/
   table.py      seats, tokens, the life cycle, the bot driver
   match.py      sets, matches, dealer and seat mapping (pure)
   deal.py       one deal on the pyspiel engine; each seat's view
-  bots.py       the bot catalog (Neural player; Random for tests)
+  bots.py       the bot catalog (Basic, Large; Random for tests)
   config.py     settings
   game/         copied from the development tree (see below)
-  tools/        build_player.py: assembles models/neural_player
+  tools/        build_player.py: assembles a player in models/
 client/src/
   lobby/        the lobby page
   table/        the table page: scoreboard, seats, result, score sheet
   net/          REST calls and the table's WebSocket
   gui/          the table UI, copied from the OpenSpiel GUI
-models/neural_player/   the Neural player (four networks plus the bidder)
+models/basic_player/    the Basic player (four networks plus the bidder)
+models/large_player/    the Large player (the bigger Normal network)
 scripts/        install, build, start, test
 ```
 
@@ -201,7 +211,8 @@ licence headers.
 | `server/schnaps_web/game/elena.py` | `python/scale/envs/schnaps_elena.py`, policy only (arch `schnaps_web.elena`, not offered yet) |
 | `server/schnaps_web/tools/build_player.py` | `python/scale/examples/schnaps_build_player.py` |
 | `client/src/gui/` | `gui/src/games/schnaps/`, `gui/src/cards/`, and the helpers they use. The renderer takes nicknames and draws your seat at the bottom |
-| `models/neural_player/` | built from `~/schnaps_normal@4000`, `~/schnaps_forced_{lomt,bauern}@1000` and `~/schnaps_forced_schnapser_r2@500` |
+| `models/basic_player/` | built from `~/schnaps_normal@4000`, `~/schnaps_forced_{lomt,bauern}@1000` and `~/schnaps_forced_schnapser_r2@500` |
+| `models/large_player/` | the same, with `~/schnaps_normal_big_gpu@1000` for the Normal game |
 
 Still used as installed libraries (not copied):
 

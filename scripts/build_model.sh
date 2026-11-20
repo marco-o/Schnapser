@@ -1,5 +1,5 @@
 #!/bin/bash
-# Assembles models/neural_player/0 from the trained networks in ~ (one time).
+# Assembles models/basic_player/0 (the Basic player) from the trained networks in ~ (one time).
 # The bid rule is set_aware (it uses the set score); extra args are passed on,
 # e.g. --overwrite to rebuild. The Schnapser part is the round-2 network,
 # retrained for the rule that the defenders' first trick ends the deal.

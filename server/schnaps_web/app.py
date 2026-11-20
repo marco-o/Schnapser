@@ -43,15 +43,17 @@ def create_app(
 
   Args:
     settings: the settings (default: config.from_env()).
-    bots: the bot catalog (default: bots.make_bots, which loads the Neural
-      player).
+    bots: the bot catalog (default: bots.make_bots, which loads the Basic
+      and, when built, the Large player).
 
   Returns:
     The FastAPI app.
   """
   settings = settings or config_lib.from_env()
   if bots is None:
-    bots = bots_lib.make_bots(settings.model_dir)
+    bots = bots_lib.make_bots(
+        settings.basic_model_dir, settings.large_model_dir
+    )
   lobby = lobby_lib.Lobby(bots, settings)
   app = fastapi.FastAPI(title="Schnaps")
   app.state.lobby = lobby

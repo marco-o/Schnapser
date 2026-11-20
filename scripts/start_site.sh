@@ -1,6 +1,7 @@
 #!/bin/bash
 # Starts the Schnaps site on 0.0.0.0:8000 (SCHNAPS_WEB_PORT to change).
-# Loads and compiles the Neural player first (about 30 s), then serves.
+# Loads and compiles the Basic and Large players first (about 30 s each),
+# then serves.
 . "$(dirname "$0")/env.sh"
 cd "$SITE/server"
 [ -f "$SITE/client/dist/index.html" ] || echo "warning: client not built (scripts/build_client.sh)"

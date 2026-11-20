@@ -4,8 +4,11 @@ A bot chooses a legal action for the game seat to move on a pyspiel state.
 Choosing may block (a network runs), so tables call it in a worker thread;
 each bot serialises its own calls.
 
-  * "neural": the Neural player (game/player.py): value-head bidding and one
-    network per contract, loaded from models/neural_player (step 0).
+  * "basic" and "large": neural players (game/player.py), value-head bidding
+    and one network per contract, loaded from models/basic_player and
+    models/large_player (step 0). They differ in the Normal network: Basic
+    has the compact CPU-trained one, Large the bigger GPU-trained one. Large
+    is offered only when its model is built (scripts/build_large.sh).
   * "random": a uniformly random legal move (tests; not offered by default).
 
 A new bot is one class with `name`, `label` and `choose(state, seat)`, and
@@ -14,7 +17,7 @@ one entry in `make_bots`.
 
 import random
 import threading
-from typing import Protocol
+from typing import Optional, Protocol
 
 import pyspiel
 
@@ -62,7 +65,7 @@ _MAX_HISTORY = 96
 
 
 class NeuralBot:
-  """The Neural player, loaded once and compiled at start.
+  """A neural player, loaded once and compiled at start.
 
   It replays the deal's history into the JAX game, reads the seat's view
   (envs.schnaps InfoState) and plays the player policy's most likely legal
@@ -71,10 +74,15 @@ class NeuralBot:
   the "set_aware" bid rule reads (game/bidding.py).
   """
 
-  name = "neural"
-  label = "Neural player"
-
-  def __init__(self, model_dir: str, warmup: bool = True):
+  def __init__(
+      self,
+      model_dir: str,
+      warmup: bool = True,
+      name: str = "basic",
+      label: str = "Basic",
+  ):
+    self.name = name
+    self.label = label
     # Imported here: they pull in JAX and the scale framework.
     # pylint: disable=g-import-not-at-top
     import jax
@@ -154,21 +162,33 @@ class NeuralBot:
     with self._lock:
       action = int(self._decide(padded, len(history), seat, need, known))
     if action not in state.legal_actions():
-      raise ValueError(f"the Neural player chose an illegal move {action}")
+      raise ValueError(f"the {self.label} player chose an illegal move {action}")
     return action
 
 
-def make_bots(model_dir: str, *, include_random: bool = False) -> dict:
+def make_bots(
+    basic_model_dir: str,
+    large_model_dir: Optional[str] = None,
+    *,
+    include_random: bool = False,
+) -> dict:
   """The bot catalog: {name: Bot}.
 
   Args:
-    model_dir: the Neural player's artifact dir.
+    basic_model_dir: the Basic player's artifact dir.
+    large_model_dir: the Large player's artifact dir; left out when None or
+      not built.
     include_random: also offer the random bot.
 
   Returns:
     The catalog.
   """
-  bots = {"neural": NeuralBot(model_dir)}
+  # pylint: disable-next=g-import-not-at-top
+  from open_spiel.python.scale.ckpt import artifact
+
+  bots = {"basic": NeuralBot(basic_model_dir, name="basic", label="Basic")}
+  if large_model_dir and artifact.exists(large_model_dir, 0):
+    bots["large"] = NeuralBot(large_model_dir, name="large", label="Large")
   if include_random:
     bots["random"] = RandomBot()
   return bots

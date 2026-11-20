@@ -1,4 +1,4 @@
-"""schnaps_web.bots.NeuralBot: the real model plays legal moves, with a set."""
+"""schnaps_web.bots.NeuralBot: the real models play legal moves, with a set."""
 
 import os
 import random
@@ -9,14 +9,21 @@ import pytest
 from schnaps_web import bots as bots_lib
 from schnaps_web import config as config_lib
 
-MODEL = config_lib.Settings().model_dir
+SETTINGS = config_lib.Settings()
+MODELS = {
+    "basic": (SETTINGS.basic_model_dir, "scripts/build_model.sh"),
+    "large": (SETTINGS.large_model_dir, "scripts/build_large.sh"),
+}
 
 
-@pytest.fixture(scope="module")
-def bot():
-  if not os.path.isdir(os.path.join(MODEL, "0")):
-    pytest.skip("models/neural_player is not built (scripts/build_model.sh)")
-  return bots_lib.NeuralBot(MODEL, warmup=False)
+@pytest.fixture(scope="module", params=sorted(MODELS))
+def bot(request):
+  model, script = MODELS[request.param]
+  if not os.path.isdir(os.path.join(model, "0")):
+    pytest.skip(f"{model} is not built ({script})")
+  return bots_lib.NeuralBot(
+      model, warmup=False, name=request.param, label=request.param.title()
+  )
 
 
 @pytest.mark.parametrize("set_need", [None, (31, 31), (4, 25), (25, 4)])
@@ -37,3 +44,15 @@ def test_plays_whole_deals(bot, set_need):
 
 def test_the_model_bids_with_the_set_aware_rule(bot):
   assert bot.rule is not None and bot.rule.name == "set_aware"
+
+
+def test_the_catalog_offers_both_players_when_built():
+  if not all(os.path.isdir(os.path.join(m, "0")) for m, _ in MODELS.values()):
+    pytest.skip("both players must be built")
+  catalog = bots_lib.make_bots(
+      SETTINGS.basic_model_dir, SETTINGS.large_model_dir
+  )
+  assert [(b.name, b.label) for b in catalog.values()] == [
+      ("basic", "Basic"),
+      ("large", "Large"),
+  ]

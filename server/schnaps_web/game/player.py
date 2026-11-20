@@ -32,6 +32,10 @@ with four card-play networks and a bid rule (envs.schnaps_bidding):
       rule="greedy", rule_kwargs={"margin": 0.0}, value_scale=3.0)
   params = {"normal": pn, "schnapser": ps, "lomt": pl, "bauern": pb}
 
+schnaps-web: the parts may be different networks (the large player pairs
+a bigger Normal network with the compact forced-contract ones); only the
+aux keys all parts share are routed.
+
 The parts must read the same InfoState (envs.schnaps) and be stateless
 in-graph JAX policies; they are nested in arch_kwargs as {"arch_name",
 "arch_kwargs"} records, so the registry rebuilds the whole player from an
@@ -194,6 +198,15 @@ class SchnapsPlayerPolicy(types.Policy):
         jnp.asarray(info["contract"], jnp.int32), 0, len(PART_NAMES) - 1
     )
     contract = jnp.where(phase == game.PHASE_PLAY, contract, game.NORMAL)
+    # The parts may differ in their aux heads (the large player's Normal
+    # network has two): only the aux keys every part has are routed.
+    common = sorted(set.intersection(*(set(o.aux) for o in outs)))
+    outs = [
+        types.PolicyOutput(
+            logits=o.logits, value=o.value, aux={k: o.aux[k] for k in common}
+        )
+        for o in outs
+    ]
     routed = outs[0]
     for c in range(1, len(PART_NAMES)):
       routed = jax.tree.map(

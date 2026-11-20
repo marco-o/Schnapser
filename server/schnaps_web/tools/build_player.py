@@ -16,9 +16,15 @@ r"""Writes the site's Neural player (schnaps_web.game.player) as an artifact.
 
 Copied for schnaps-web from
 open_spiel/python/scale/examples/schnaps_build_player.py. By default it
-writes models/neural_player/0 of this repository:
+writes models/basic_player/0 of this repository:
 
   python -m schnaps_web.tools.build_player             # greedy bidder
+
+schnaps-web: the parts may be different networks as long as they read the
+same input and write the same outputs (encoder, observation shape, actions,
+seats, value layout and value_scale). The large player
+(scripts/build_large.sh) pairs a bigger Normal network with the compact
+forced-contract ones.
 
 The original description follows (the default output dir differs).
 
@@ -45,11 +51,14 @@ from open_spiel.python.scale.core import x64
 from open_spiel.python.scale.envs import registry as env_registry
 from schnaps_web.game import player as player_lib
 
-#: The site's model folder (schnaps-web/models/neural_player).
+#: The basic player's folder (schnaps-web/models/basic_player), the default.
 DEFAULT_OUT_DIR = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "models",
-    "neural_player",
+    "basic_player",
 )
+#: arch_kwargs keys that may differ between parts: the env each was trained
+#: on, and the network itself.
+_FREE_KEYS = ("game", "network")
 
 
 def _load(ckpt: str):
@@ -82,7 +91,7 @@ def build(
     The artifact id.
 
   Raises:
-    ValueError: the sources are not one architecture.
+    ValueError: the sources disagree on their inputs or outputs.
   """
   out_dir = os.path.expanduser(out_dir)
   target = os.path.join(out_dir, str(step))
@@ -94,11 +103,17 @@ def build(
   ref = None
   scales = set()
   for n, (src_id, art) in loaded.items():
-    kw = {k: v for k, v in art.manifest.arch_kwargs.items() if k != "game"}
+    kw = {
+        k: v
+        for k, v in art.manifest.arch_kwargs.items()
+        if k not in _FREE_KEYS
+    }
     if ref is None:
       ref = (art.manifest.arch_name, kw)
     elif (art.manifest.arch_name, kw) != ref:
-      raise ValueError(f"{src_id} ({n}) is not the same network as the others")
+      raise ValueError(
+          f"{src_id} ({n}) does not read and write what the others do"
+      )
     scales.add(float(art.manifest.extensions.get("value_scale", 1.0)))
   if len(scales) != 1:
     raise ValueError(f"the sources disagree on value_scale: {sorted(scales)}")

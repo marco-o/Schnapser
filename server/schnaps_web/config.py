@@ -15,7 +15,9 @@ class Settings:
   Attributes:
     host: the address to listen on (0.0.0.0: every interface, for the LAN).
     port: the port.
-    model_dir: the Neural player's artifact dir (step 0).
+    basic_model_dir: the Basic player's artifact dir (step 0).
+    large_model_dir: the Large player's artifact dir (step 0); the bot is
+      left out when it is not built.
     client_dir: the built client (client/dist), served at /.
     bot_delay: seconds a bot waits before each move, so people can follow.
     deal_pause: seconds the result of a deal stays up before the next one.
@@ -24,7 +26,8 @@ class Settings:
 
   host: str = "0.0.0.0"
   port: int = 8000
-  model_dir: str = os.path.join(_ROOT, "models", "neural_player")
+  basic_model_dir: str = os.path.join(_ROOT, "models", "basic_player")
+  large_model_dir: str = os.path.join(_ROOT, "models", "large_player")
   client_dir: str = os.path.join(_ROOT, "client", "dist")
   bot_delay: float = 0.8
   deal_pause: float = 5.0

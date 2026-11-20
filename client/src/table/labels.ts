@@ -10,7 +10,7 @@ export function pairLabel(pair: number): string {
   return pair === 0 ? 'South–North' : 'West–East';
 }
 
-/** A seat's name; bots also say where they sit ("Neural player (West)"). */
+/** A seat's name; bots also say where they sit ("Large (West)"). */
 export function seatName(seats: readonly SeatInfo[], seat: number): string {
   const s = seats[seat];
   const where = SEAT_NAMES[seat] ?? `Seat ${String(seat)}`;
