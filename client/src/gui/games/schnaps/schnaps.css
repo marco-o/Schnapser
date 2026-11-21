@@ -119,7 +119,8 @@
   .card-row__cards[data-fanned='true']
   > .playing-card
   + .playing-card {
-  margin-left: -40px;
+  /* schnaps-web: tighter, so face-up side hands (the watch port) fit. */
+  margin-left: -50px;
 }
 
 .schnaps-trick {
@@ -242,6 +243,16 @@
 
 .schnaps-moves .button--suit .schnaps-suit {
   height: 40px;
+}
+
+/* schnaps-web: the trump and the bids next to a seat's name. */
+.schnaps-seat .card-row__label .schnaps-suit {
+  height: 1.5em;
+}
+
+.schnaps-bids {
+  color: var(--color-felt-text);
+  font-weight: 600;
 }
 
 .schnaps-info .schnaps-suit {

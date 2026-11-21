@@ -16,10 +16,16 @@ WebSocket /ws/tables/{id}?token=...: the table's snapshot (table.snapshot)
 on connect and after every change, as seen by that token (no token: a
 spectator).
 
+GET /api/site says which app this is ({"watch": false}).
+
+The watch app (create_watch_app, settings.watch_port, default 8001) shares
+the lobby but is read-only: GET /api/site ({"watch": true}), GET
+/api/tables and the WebSocket, which shows every hand to everyone.
+
 Everything else serves the built client (client/dist), with index.html for
 the client's own routes.
 
-  uvicorn schnaps_web.app:app --host 0.0.0.0 --port 8000
+  python -m schnaps_web.app        # both ports (serve)
 """
 
 import os
@@ -76,6 +82,10 @@ def create_app(
     if not isinstance(body, dict) or key not in body:
       raise fastapi.HTTPException(400, f"missing {key!r}")
     return body[key]
+
+  @app.get("/api/site")
+  async def site():
+    return {"watch": False}
 
   @app.get("/api/bots")
   async def list_bots():
@@ -139,6 +149,38 @@ def create_app(
     guarded(table_of(table_id).close, x_seat_token)
     return {"ok": True}
 
+  _add_socket(app, lobby, reveal=False)
+  _add_client(app, settings)
+  return app
+
+
+def create_watch_app(
+    lobby: lobby_lib.Lobby, settings: config_lib.Settings
+) -> fastapi.FastAPI:
+  """The all-cards watch app (settings.watch_port): read-only, every hand.
+
+  It serves the same client and lobby list, and each table's WebSocket
+  with every hand shown; it has no route that changes anything.
+  """
+  app = fastapi.FastAPI(title="Schnaps (watch)")
+  app.state.lobby = lobby
+
+  @app.get("/api/site")
+  async def site():
+    return {"watch": True}
+
+  @app.get("/api/tables")
+  async def list_tables():
+    return lobby.summaries()
+
+  _add_socket(app, lobby, reveal=True)
+  _add_client(app, settings)
+  return app
+
+
+def _add_socket(app: fastapi.FastAPI, lobby: lobby_lib.Lobby, reveal: bool) -> None:
+  """WebSocket /ws/tables/{id}: the table's snapshots (`reveal`: all hands)."""
+
   @app.websocket("/ws/tables/{table_id}")
   async def watch(websocket: fastapi.WebSocket, table_id: str):
     try:
@@ -147,8 +189,8 @@ def create_app(
       await websocket.close(code=4404)
       return
     await websocket.accept()
-    token = websocket.query_params.get("token") or None
-    listener = table_lib.Listener(token, websocket.send_json)
+    token = None if reveal else (websocket.query_params.get("token") or None)
+    listener = table_lib.Listener(token, websocket.send_json, reveal)
     await table.attach(listener)
     try:
       while True:
@@ -158,7 +200,9 @@ def create_app(
     finally:
       table.detach(listener)
 
-  # The client: built files, and index.html for its own routes.
+
+def _add_client(app: fastapi.FastAPI, settings: config_lib.Settings) -> None:
+  """The client: built files, and index.html for its own routes."""
   index = os.path.join(settings.client_dir, "index.html")
   assets = os.path.join(settings.client_dir, "assets")
   if os.path.isdir(assets):
@@ -181,7 +225,37 @@ def create_app(
         "The client is not built yet (scripts/build_client.sh).", 503
     )
 
-  return app
+
+def serve(settings: Optional[config_lib.Settings] = None) -> None:
+  """Runs the site on settings.port and, unless 0, the watch app on
+  settings.watch_port, in one process sharing one lobby."""
+  import asyncio  # pylint: disable=g-import-not-at-top
+  import uvicorn  # pylint: disable=g-import-not-at-top
+
+  settings = settings or config_lib.from_env()
+  main = create_app(settings)
+  servers = [
+      uvicorn.Server(uvicorn.Config(
+          main, host=settings.host, port=settings.port, log_level="warning"
+      ))
+  ]
+  if settings.watch_port:
+    watch = create_watch_app(main.state.lobby, settings)
+    servers.append(uvicorn.Server(uvicorn.Config(
+        watch, host=settings.host, port=settings.watch_port,
+        log_level="warning",
+    )))
+  print(
+      f"Schnaps: http://{settings.host}:{settings.port}"
+      + (f", all-cards watch on port {settings.watch_port}"
+         if settings.watch_port else ""),
+      flush=True,
+  )
+
+  async def run():
+    await asyncio.gather(*(s.serve() for s in servers))
+
+  asyncio.run(run())
 
 
 def __getattr__(name: str):
@@ -192,3 +266,7 @@ def __getattr__(name: str):
     app = create_app()
     return app
   raise AttributeError(name)
+
+
+if __name__ == "__main__":
+  serve()

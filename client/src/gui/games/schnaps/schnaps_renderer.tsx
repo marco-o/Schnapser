@@ -29,7 +29,13 @@ import {CardFace} from '../../cards/card_face.tsx';
 import {cardActions} from '../../cards/card_hints.ts';
 import {Hand} from '../../cards/hand.tsx';
 import {readHints} from '../../renderers/hints.ts';
-import {field, record, string} from '../../renderers/struct_reader.ts';
+import {
+  field,
+  number,
+  optionalField,
+  record,
+  string,
+} from '../../renderers/struct_reader.ts';
 import type {Frame, Presentation} from '../../table_types.ts';
 import {
   SCHNAPS_SKIN,
@@ -225,22 +231,38 @@ function SeatArea({
   readonly play: ((action: number) => void) | null;
 }): JSX.Element {
   const entry = view.seats[seat];
-  const roles = [
-    seat === 0 ? 'caller' : null,
-    view.contract !== null &&
-    view.contract.name !== 'Normal' &&
-    view.contract.declarer === seat
-      ? 'declarer'
-      : null,
-  ].filter(role => role !== null);
-  const label =
-    roles.length === 0
-      ? seatName(seat)
-      : `${seatName(seat)} (${roles.join(', ')})`;
+  // schnaps-web: the Caller (game seat 0) shows the trump's sign; every
+  // seat shows its bids (Pass, Fleck, a contract) next to its name.
+  const trump = seat === 0 ? view.trump : null;
+  const bids = view.bids
+    .filter(b => b.seat === seat)
+    .map(b => b.bid)
+    .join(', ');
   const said = view.declarations
     .filter(d => d.seat === seat)
     .map(declarationText)
     .join(', ');
+  const label = [
+    seatName(seat),
+    trump === null ? '' : `trump ${suitName(trump)}`,
+    bids,
+    said,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+  const title = (
+    <>
+      {seatName(seat)}
+      {trump !== null && (
+        <>
+          {' '}
+          <SuitIcon suit={trump} />
+        </>
+      )}
+      {bids && <span className="schnaps-bids"> {bids}</span>}
+      {said && ` · ${said}`}
+    </>
+  );
   return (
     <div
       className="schnaps-seat"
@@ -248,7 +270,8 @@ function SeatArea({
       data-active={view.toMove === seat ? 'true' : undefined}
     >
       <Hand
-        label={said ? `${label} · ${said}` : label}
+        label={label}
+        title={title}
         cards={entry?.cards ?? []}
         playable={playable}
         play={play}
@@ -259,6 +282,9 @@ function SeatArea({
   );
 }
 
+/** schnaps-web: a call's chance of success is shown above this. */
+const CHANCE_SHOWN = 0.2;
+
 /** The buttons for every action that is not a card: calls, declarations. */
 function MoveButtons({
   presentation,
@@ -267,14 +293,25 @@ function MoveButtons({
   const buttons = readHints(presentation, (hint, path) => {
     if (hint === null) return null;
     const fields = record(hint, path);
-    if ('button' in fields) return field(hint, path, 'button', string);
-    if ('declare' in fields) return field(hint, path, 'label', string);
+    // schnaps-web: a call may carry its chance of success ("chance").
+    const chance = optionalField(hint, path, 'chance', number, null);
+    if ('button' in fields) {
+      return {text: field(hint, path, 'button', string), chance};
+    }
+    if ('declare' in fields) {
+      return {text: field(hint, path, 'label', string), chance};
+    }
     return null;
   });
   if (buttons.length === 0) return null;
   return (
     <div className="schnaps-moves" role="group" aria-label="Moves">
-      {buttons.map(({action, hint: text}) => {
+      {buttons.map(({action, hint: {text: name, chance}}) => {
+        // schnaps-web: a call's chance of success shows when above 20%.
+        const text =
+          chance !== null && chance > CHANCE_SHOWN
+            ? `${name} ${String(Math.round(chance * 100))}%`
+            : name;
         // schnaps-web: a trump choice shows the suit's picture, not its name.
         const trump = trumpOfAction(action);
         return (

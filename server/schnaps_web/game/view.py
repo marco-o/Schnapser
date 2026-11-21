@@ -59,6 +59,8 @@ from typing import Any, Optional
 
 import pyspiel
 
+from schnaps_web.game import success
+
 GAME = "schnaps"
 
 Json = Any
@@ -261,19 +263,35 @@ def _action_text(state: pyspiel.State, action: int) -> str:
   if action == _FLECK:
     return "Fleck"
   if _FIRST_CALL <= action < _FIRST_CALL + len(_CALLS):
-    return f"Call {_CALLS[action - _FIRST_CALL]}"
+    # schnaps-web: the contract's name alone ("Lomt", not "Call Lomt").
+    return _CALLS[action - _FIRST_CALL]
   raise ValueError(f"schnaps: {action} is not an action.")
 
 
-def present(state: pyspiel.State, viewer: Optional[int]) -> dict[str, Json]:
+def _bids(state: pyspiel.State) -> list[Json]:
+  """schnaps-web: every bid so far, in order: {"seat", "bid"}.
+
+  "bid" is "Pass", "Fleck" or a contract's name.
+  """
+  out: list[Json] = []
+  for item in state.full_history():
+    if item.player >= 0 and item.action >= _PASS:
+      out.append({"seat": int(item.player), "bid": _action_text(state, item.action)})
+  return out
+
+
+def present(
+    state: pyspiel.State, viewer: Optional[int], reveal: bool = False
+) -> dict[str, Json]:
   """The table, holding only the hands `viewer` may see.
 
   Args:
     state: the deal.
     viewer: the viewing game seat, or None for a spectator (no hand).
+    reveal: schnaps-web: show every hand (the all-cards watch port).
 
   Returns:
-    The view (module doc).
+    The view (module doc), plus schnaps-web's "bids" (_bids).
   """
   if state.get_game().get_type().short_name != GAME:
     raise ValueError("The schnaps view was given another game.")
@@ -283,7 +301,7 @@ def present(state: pyspiel.State, viewer: Optional[int]) -> dict[str, Json]:
     hand = parsed.hands[seat]
     cards: list[Json] = (
         [card_code(card) for card in hand]
-        if viewer == seat
+        if reveal or viewer == seat
         else [None] * len(hand)
     )
     seats.append({"seat": seat, "team": seat % 2, "cards": cards})
@@ -305,6 +323,7 @@ def present(state: pyspiel.State, viewer: Optional[int]) -> dict[str, Json]:
       ],
       "lastTrick": _last_trick(state, parsed),
       "declarations": _declarations(state, parsed),
+      "bids": _bids(state),
       "score": list(parsed.score),
       "tricks": list(parsed.tricks),
       "toMove": int(player) if 0 <= player < _NUM_SEATS else None,
@@ -324,7 +343,21 @@ def describe_actions(
     {action: hint}.
   """
   hints: dict[int, Json] = {}
+  parsed = None
   for action in actions:
+    if _FIRST_CALL <= action < _FIRST_CALL + len(_CALLS):
+      # schnaps-web: a call carries its chance of success from the table.
+      if parsed is None:
+        parsed = _Parsed(str(state))
+      seat = state.current_player()
+      p = success.chance(
+          _CALLS[action - _FIRST_CALL], parsed.hands[seat], parsed.trump, seat
+      )
+      hint: dict[str, Json] = {"button": _action_text(state, action)}
+      if p is not None:
+        hint["chance"] = p
+      hints[action] = hint
+      continue
     if action < _NUM_CARDS:
       hints[action] = {"card": card_code(action)}
     elif action < _FIRST_TRUMP:
@@ -338,7 +371,7 @@ def describe_actions(
 
 
 def action_text(state: pyspiel.State, action: int) -> str:
-  """A seat's action as the deal log names it ("Call Lomt", "Play Herz As")."""
+  """A seat's action as the deal log names it ("Lomt", "Play Herz As")."""
   return _action_text(state, action)
 
 

@@ -75,7 +75,7 @@ class Deal:
       action: the action id.
 
     Returns:
-      The move as the log names it, e.g. "Call Lomt".
+      The move as the log names it, e.g. "Lomt".
 
     Raises:
       DealError: the deal is over, it is not `seat`'s turn, or the action is
@@ -92,8 +92,11 @@ class Deal:
     self._deal_chance()
     return text
 
-  def frame(self, seat: Optional[int]) -> dict:
-    """What table seat `seat` (None: a spectator) may see (module doc)."""
+  def frame(self, seat: Optional[int], reveal: bool = False) -> dict:
+    """What table seat `seat` (None: a spectator) may see (module doc).
+
+    `reveal` shows every hand (the all-cards watch port, spectators only).
+    """
     viewer = None if seat is None else self.game_seat(seat)
     actions = []
     if viewer is not None and not self.state.is_terminal():
@@ -112,7 +115,7 @@ class Deal:
         "viewer": {"seat": viewer},
         "seatMap": [self.table_seat(g) for g in range(match.NUM_SEATS)],
         "presentation": {
-            "view": view.present(self.state, viewer),
+            "view": view.present(self.state, viewer, reveal),
             "actions": actions,
         },
         "returns": (

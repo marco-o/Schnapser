@@ -15,23 +15,19 @@ import {
   tokenOf,
 } from '../net/api.ts';
 import {useTable} from '../net/use_table.ts';
-import {
-  SEAT_NAMES,
-  contractText,
-  pairLabel,
-  pairNames,
-  phaseLabel,
-  seatName,
-} from './labels.ts';
+import {contractText, pairNames, phaseLabel, seatName} from './labels.ts';
 
 export function TablePage({
   tableId,
   go,
+  watch,
 }: {
   readonly tableId: string;
   readonly go: (path: string) => void;
+  /** The all-cards watch port: read-only, no seat token. */
+  readonly watch: boolean;
 }): JSX.Element {
-  const [token, setLocalToken] = useState(tokenOf(tableId));
+  const [token, setLocalToken] = useState(watch ? null : tokenOf(tableId));
   const {snapshot, connection} = useTable(tableId, token);
   const [error, setError] = useState('');
 
@@ -98,6 +94,7 @@ export function TablePage({
         </button>
         <h1>{snapshot.name}</h1>
         <span className="site-badge">{phaseLabel(snapshot.phase)}</span>
+        {watch && <span className="site-badge">watching · all cards shown</span>}
         {connection !== 'live' && (
           <span className="site-badge site-badge--warn">reconnecting…</span>
         )}
@@ -119,6 +116,7 @@ export function TablePage({
             leave={leave}
             run={run}
             tableId={tableId}
+            watch={watch}
           />
           {snapshot.isCreator && (
             <section className="site-card">
@@ -173,17 +171,14 @@ function Table({
   readonly play: ((action: number) => void) | null;
 }): JSX.Element {
   const frame = snapshot.frame!;
-  // Game seat g sits at table seat seatMap[g].
+  // Game seat g sits at table seat seatMap[g]. The trump and the bids are
+  // drawn next to the names by the renderer.
   const labels = frame.seatMap.map(t => {
     const s = snapshot.seats[t];
     const name = seatName(snapshot.seats, t);
-    const tags = [
-      t === snapshot.dealer ? 'dealer' : null,
-      s?.kind === 'human' && !s.online ? 'offline' : null,
-    ].filter(Boolean);
-    return tags.length ? `${name} · ${tags.join(', ')}` : name;
+    return s?.kind === 'human' && !s.online ? `${name} · offline` : name;
   });
-  // Spectators see South (table seat 0) at the bottom.
+  // Spectators see table seat 0 at the bottom.
   const bottomSeat = Math.max(0, frame.seatMap.indexOf(0));
   return (
     <SchnapsRenderer
@@ -212,10 +207,7 @@ function Scoreboard({snapshot}: {readonly snapshot: TableSnapshot}): JSX.Element
         <tbody>
           {[0, 1].map(p => (
             <tr key={p} data-winner={m?.winner === p ? 'true' : undefined}>
-              <td>
-                <div>{pairLabel(p)}</div>
-                <div className="site-muted">{pairNames(p, snapshot.seats)}</div>
-              </td>
+              <td>{pairNames(p, snapshot.seats)}</td>
               <td className="site-score__need">{m ? m.need[p] : 31}</td>
               <td>{m ? m.sets[p] : 0}</td>
             </tr>
@@ -238,6 +230,7 @@ function Seats({
   leave,
   run,
   tableId,
+  watch,
 }: {
   readonly snapshot: TableSnapshot;
   readonly token: string | null;
@@ -245,15 +238,17 @@ function Seats({
   readonly leave: (seat: number) => void;
   readonly run: (job: () => Promise<unknown>) => void;
   readonly tableId: string;
+  readonly watch: boolean;
 }): JSX.Element {
-  const seated = snapshot.you !== null;
+  // On the watch port nobody may sit.
+  const seated = watch || snapshot.you !== null;
   return (
     <section className="site-card" aria-label="Seats">
       <h2>Seats</h2>
       <ul className="site-seats">
         {snapshot.seats.map((s, i) => (
           <li key={i} className="site-seat">
-            <span className="site-seat__where">{SEAT_NAMES[i]}</span>
+            <span className="site-seat__where">Seat {i + 1}</span>
             <span className="site-seat__who">
               {s.kind === 'empty' ? (
                 <em className="site-muted">empty</em>
@@ -265,7 +260,9 @@ function Seats({
                     title={s.online ? 'online' : 'offline'}
                   />
                   {s.name}
-                  {s.kind === 'bot' && <span className="site-muted"> (bot)</span>}
+                  {s.kind === 'bot' && (
+                    <span className="site-muted"> ({s.botLabel ?? 'bot'} bot)</span>
+                  )}
                   {s.you && <strong> (you)</strong>}
                 </>
               )}
@@ -323,7 +320,8 @@ function ResultBanner({snapshot}: {readonly snapshot: TableSnapshot}): JSX.Eleme
         {declarer ? ` by ${declarer}` : ''}
       </span>
       <span>
-        To go: {pairLabel(0)} {d.need_after[0]} · {pairLabel(1)} {d.need_after[1]}
+        To go: {pairNames(0, snapshot.seats)} {d.need_after[0]} ·{' '}
+        {pairNames(1, snapshot.seats)} {d.need_after[1]}
       </span>
       {r.setWinner !== null && (
         <strong>Set {d.set_number} to {pairNames(r.setWinner, snapshot.seats)}!</strong>
@@ -354,8 +352,8 @@ function ScoreSheet({snapshot}: {readonly snapshot: TableSnapshot}): JSX.Element
             <th>Declarer</th>
             <th>Won by</th>
             <th>Pts</th>
-            <th>{pairLabel(0)}</th>
-            <th>{pairLabel(1)}</th>
+            <th>{pairNames(0, snapshot.seats)}</th>
+            <th>{pairNames(1, snapshot.seats)}</th>
           </tr>
         </thead>
         <tbody>
@@ -366,7 +364,7 @@ function ScoreSheet({snapshot}: {readonly snapshot: TableSnapshot}): JSX.Element
               <td>{name(d.dealer)}</td>
               <td>{contractText(d.contract, d.flecks)}</td>
               <td>{name(d.declarer)}</td>
-              <td>{pairLabel(d.winner)}</td>
+              <td>{pairNames(d.winner, snapshot.seats)}</td>
               <td>{d.points}</td>
               <td>{d.need_after[0]}</td>
               <td>{d.need_after[1]}</td>

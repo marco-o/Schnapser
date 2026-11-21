@@ -1,25 +1,26 @@
-// Names shown for seats, pairs and phases.
+// Names shown for seats, pairs and phases. Seats are named by who sits
+// there, never by a compass point.
 
 import type {Phase, SeatInfo} from '../net/api.ts';
 
-/** Table seats 0..3, clockwise. */
-export const SEAT_NAMES = ['South', 'West', 'North', 'East'] as const;
+/** Table seats 0..3, clockwise; seats 0 and 2 are partners, so are 1 and 3. */
+export const SEAT_NUMBERS = [0, 1, 2, 3] as const;
 
-/** Pair 0 is South + North (seats 0, 2), pair 1 West + East (seats 1, 3). */
-export function pairLabel(pair: number): string {
-  return pair === 0 ? 'South–North' : 'West–East';
-}
-
-/** A seat's name; bots also say where they sit ("Large (West)"). */
+/** A seat's name: who sits there, or "Seat N" while it is empty. */
 export function seatName(seats: readonly SeatInfo[], seat: number): string {
   const s = seats[seat];
-  const where = SEAT_NAMES[seat] ?? `Seat ${String(seat)}`;
-  if (!s || s.kind === 'empty') return where;
-  return s.kind === 'bot' ? `${s.name} (${where})` : s.name;
+  if (!s || s.kind === 'empty') return `Seat ${String(seat + 1)}`;
+  return s.name;
 }
 
+/** A pair by its players: "Anna & Hermione". */
 export function pairNames(pair: number, seats: readonly SeatInfo[]): string {
   return `${seatName(seats, pair)} & ${seatName(seats, pair + 2)}`;
+}
+
+/** A seat in a chooser: "Seat 1 (partner of seat 3)". */
+export function seatChoice(seat: number): string {
+  return `Seat ${String(seat + 1)} (partner of seat ${String(((seat + 2) % 4) + 1)})`;
 }
 
 export function phaseLabel(phase: Phase): string {

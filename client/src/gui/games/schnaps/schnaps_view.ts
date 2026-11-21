@@ -54,6 +54,12 @@ export interface SchnapsDeclaration {
   readonly trick: number;
 }
 
+/** schnaps-web: one bid: "Pass", "Fleck" or a contract's name. */
+export interface SchnapsBid {
+  readonly seat: number;
+  readonly bid: string;
+}
+
 /** The stage of the deal. */
 export type SchnapsPhase = 'deal' | 'trump' | 'bidding' | 'play' | 'terminal';
 
@@ -73,6 +79,8 @@ export interface SchnapsView {
   readonly toMove: number | null;
   /** Every 20 or 40 declared so far (empty from an older server). */
   readonly declarations: readonly SchnapsDeclaration[];
+  /** schnaps-web: every bid so far, in order (empty from an older server). */
+  readonly bids: readonly SchnapsBid[];
 }
 
 const PHASES: readonly SchnapsPhase[] = [
@@ -143,6 +151,18 @@ function readDeclarations(view: unknown, path: string): SchnapsDeclaration[] {
   );
 }
 
+function readBids(view: unknown, path: string): SchnapsBid[] {
+  if (typeof view !== 'object' || view === null || !('bids' in view)) {
+    return [];
+  }
+  return field(view, path, 'bids', (value, listPath) =>
+    array(value, listPath, (b, p) => ({
+      seat: field(b, p, 'seat', integer),
+      bid: field(b, p, 'bid', string),
+    })),
+  );
+}
+
 /** The schnaps view of a presentation; throws naming a malformed field. */
 export function readSchnapsView(view: unknown): SchnapsView {
   const path = 'view';
@@ -170,6 +190,7 @@ export function readSchnapsView(view: unknown): SchnapsView {
       nullable(value, movePath, integer),
     ),
     declarations: readDeclarations(view, path),
+    bids: readBids(view, path),
   };
 }
 

@@ -12,9 +12,16 @@ import {
   type TableSummary,
   tokenOf,
 } from '../net/api.ts';
-import {SEAT_NAMES, pairLabel, phaseLabel} from '../table/labels.ts';
+import {SEAT_NUMBERS, pairNames, phaseLabel, seatChoice} from '../table/labels.ts';
 
-export function Lobby({go}: {readonly go: (path: string) => void}): JSX.Element {
+export function Lobby({
+  go,
+  watch,
+}: {
+  readonly go: (path: string) => void;
+  /** The all-cards watch port: no seats to take, no tables to start. */
+  readonly watch: boolean;
+}): JSX.Element {
   const [name, setName] = useState(nickname());
   const [tables, setTables] = useState<TableSummary[] | null>(null);
   const [tableName, setTableName] = useState('');
@@ -79,7 +86,8 @@ export function Lobby({go}: {readonly go: (path: string) => void}): JSX.Element 
 
   return (
     <main className="site-page">
-      <h1 className="site-title">Schnaps</h1>
+      <h1 className="site-title">Schnaps{watch ? ' · watching, all cards shown' : ''}</h1>
+      {!watch && (<>
       <section className="site-card">
         <label className="site-field">
           <span>Your nickname</span>
@@ -108,9 +116,9 @@ export function Lobby({go}: {readonly go: (path: string) => void}): JSX.Element 
           <label className="site-field">
             <span>Your seat</span>
             <select value={seat} onChange={e => setSeat(Number(e.target.value))}>
-              {SEAT_NAMES.map((n, i) => (
-                <option key={n} value={i}>
-                  {n}
+              {SEAT_NUMBERS.map(i => (
+                <option key={i} value={i}>
+                  {seatChoice(i)}
                 </option>
               ))}
             </select>
@@ -120,6 +128,7 @@ export function Lobby({go}: {readonly go: (path: string) => void}): JSX.Element 
           </button>
         </div>
       </section>
+      </>)}
 
       {error && (
         <p className="site-error" role="alert">
@@ -132,7 +141,7 @@ export function Lobby({go}: {readonly go: (path: string) => void}): JSX.Element 
         {tables === null ? (
           <p>Loading…</p>
         ) : tables.length === 0 ? (
-          <p>No tables yet. Start one above.</p>
+          <p>{watch ? 'No tables yet.' : 'No tables yet. Start one above.'}</p>
         ) : (
           <ul className="site-tables">
             {tables.map(t => {
@@ -144,16 +153,18 @@ export function Lobby({go}: {readonly go: (path: string) => void}): JSX.Element 
                     <span className="site-badge">{phaseLabel(t.phase)}</span>
                     {t.need && t.sets && (
                       <span className="site-muted">
-                        {pairLabel(0)} {t.need[0]} ({t.sets[0]} sets) ·{' '}
-                        {pairLabel(1)} {t.need[1]} ({t.sets[1]} sets)
+                        {pairNames(0, t.seats)} {t.need[0]} ({t.sets[0]} sets) ·{' '}
+                        {pairNames(1, t.seats)} {t.need[1]} ({t.sets[1]} sets)
                       </span>
                     )}
                   </div>
                   <ol className="site-table__seats">
                     {t.seats.map((s, i) => (
                       <li key={i}>
-                        <span className="site-muted">{SEAT_NAMES[i]}:</span>{' '}
-                        {s.kind === 'empty' ? (
+                        <span className="site-muted">Seat {i + 1}:</span>{' '}
+                        {s.kind === 'empty' && watch ? (
+                          <em className="site-muted">empty</em>
+                        ) : s.kind === 'empty' ? (
                           <button
                             type="button"
                             className="button button--small"
@@ -176,7 +187,7 @@ export function Lobby({go}: {readonly go: (path: string) => void}): JSX.Element 
                     className="button button--small"
                     onClick={() => go(`/table/${t.id}`)}
                   >
-                    {mine ? 'Back to my seat' : 'Watch'}
+                    {mine && !watch ? 'Back to my seat' : 'Watch'}
                   </button>
                 </li>
               );

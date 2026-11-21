@@ -213,12 +213,14 @@ class SchnapsPlayerPolicy(types.Policy):
           lambda a, b, c=c: _select(contract == c, a, b), outs[c], routed
       )
 
+    # The hard rules (bidding.allowed_bids) hold whatever the rule.
+    legal = bidding.allowed_bids(info, step.legal_mask)
     est = bidding.estimate(
-        info, step.legal_mask, self.value_fn(params, carry, step, key)
+        info, legal, self.value_fn(params, carry, step, key)
     )
     ctx = bidding.BidContext(
         info=info,
-        legal=step.legal_mask,
+        legal=legal,
         estimates=est,
         set=bidding.set_context(info),
     )

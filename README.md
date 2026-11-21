@@ -10,7 +10,9 @@ enter a nickname, and then:
 
 **How a match runs:**
 
-- **Sets:** both pairs (South–North against West–East) start at **31** and
+- **Seats:** seats 1 and 3 are partners, so are seats 2 and 4. Players and
+  pairs are shown by name only (no compass points).
+- **Sets:** both pairs start at **31** and
   count down by the points they win. The first pair at or below 0 wins the
   set.
 - **Match:** best of **3 sets**. Then the creator can start a new match.
@@ -27,6 +29,19 @@ enter a nickname, and then:
     defenders win.
   - **Lomt and Bauern:** the deal stops at the first trick the declarer
     doesn't win.
+- **On the green table, next to each name:** the trump's suit sign next to
+  the Caller, then the player's bids in order (Pass, Fleck, Schnapser, …).
+- **Bid buttons** name the game only ("Schnapser", "Lomt"). A call whose
+  chance of success is above 20% shows it, e.g. "Schnapser 43%". The
+  chances come from a pre-computed table (`server/schnaps_web/game/
+  success_table.json`): per hand class and seat, the success chance the
+  contract network's value head predicted in the round-2 measurements
+  (Docker/forced-contract-option.md). Rebuild it with
+  `python3 scripts/build_success_table.py ~/schnaps_forced_measure_lomt.json
+  ~/schnaps_forced_measure_bauern.json ~/schnaps_forced_measure_schnapser_r2.json`.
+  Jodler and Hermort have no table (they win at once).
+- **Bots** get a random Harry Potter first name, a different one per seat;
+  the seat list says which bot it is ("Hermione (Large bot)").
 - **20 and 40:** a declaration shows on the green table over the trick it
   leads ("Anna: 40 ♥ Herz"), and next to the player's name for the rest of
   the deal.
@@ -43,8 +58,15 @@ enter a nickname, and then:
 - **Disconnects:** the table waits for the player to come back. Reloading
   the page, or reopening it in the same browser, returns you to your seat.
 
-Your seat is protected by a private token kept in your browser. Nobody,
-including spectators, can see another player's cards.
+Your seat is protected by a private token kept in your browser. On the
+main port (8000) nobody, including spectators, can see another player's
+cards.
+
+**The all-cards watch port (8001).** <http://localhost:8001> shows the same
+lobby and tables, read-only, with **every hand face up**. Nothing can be
+changed from there (no seats, no moves). Anyone who can open it sees all
+cards, so only forward it to the LAN when nobody playing would peek.
+`SCHNAPS_WEB_WATCH_PORT` picks another port; `0` turns it off.
 
 ## Running it
 
@@ -64,7 +86,8 @@ Everything runs in the WSL distro **Ubuntu**, from PowerShell.
    ```
 
 3. **Start the site.** It takes about a minute while the Basic and Large
-   players load and compile. Then open <http://localhost:8000>. Ctrl-C stops it.
+   players load and compile. Then open <http://localhost:8000> (and the
+   all-cards watch page on <http://localhost:8001>). Ctrl-C stops it.
 
    ```powershell
    wsl -d Ubuntu -- bash /mnt/c/Users/marco/Documents/git/Docker/schnaps-web/scripts/start_site.sh
@@ -115,6 +138,9 @@ $ip = (wsl -d Ubuntu -- hostname -I).Trim().Split()[0]
 netsh interface portproxy add v4tov4 listenport=8000 listenaddress=0.0.0.0 connectport=8000 connectaddress=$ip
 ```
 
+The watch port works the same way, with 8001 in place of 8000 (and its own
+firewall rule, e.g. "Schnaps watch").
+
 To undo both settings:
 
 ```powershell
@@ -136,8 +162,11 @@ They cover:
 
 - scoring, sets, the match and dealer rotation (`tests/test_match.py`);
 - whole deals and the privacy of each seat's view (`tests/test_deal.py`);
-- the API and WebSocket: seats, permissions, privacy, a human move, and a
-  complete match between bots (`tests/test_app.py`).
+- bids in the view, call labels and their chances, the all-cards reveal
+  (`tests/test_deal.py`);
+- the API and WebSocket: seats, permissions, privacy, a human move, a
+  complete match between bots, bot names, and the read-only watch app
+  (`tests/test_app.py`).
 
 ## Layout
 

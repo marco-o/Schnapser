@@ -7,6 +7,8 @@ export interface SeatInfo {
   readonly kind: 'empty' | 'human' | 'bot';
   readonly name: string;
   readonly bot: string | null;
+  /** The bot's kind as the site offers it ("Basic", "Large"). */
+  readonly botLabel?: string | null;
   readonly online: boolean;
   readonly you: boolean;
 }
@@ -63,6 +65,8 @@ export interface TableSnapshot {
   readonly dealer: number | null;
   readonly toMove: number | null;
   readonly frame: TableFrame | null;
+  /** Every hand is shown: the all-cards watch port. */
+  readonly reveal?: boolean;
   readonly lastResult: {
     readonly deal: DealResult;
     readonly setWinner: number | null;
@@ -131,6 +135,8 @@ async function call<T>(
 }
 
 export const api = {
+  /** Which app serves the page: the watch port is read-only, all cards shown. */
+  site: () => call<{watch: boolean}>('GET', '/api/site'),
   tables: () => call<TableSummary[]>('GET', '/api/tables'),
   create: (name: string, player: string, seat: number) =>
     call<{id: string; token: string}>('POST', '/api/tables', {

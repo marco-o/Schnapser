@@ -35,6 +35,18 @@ from schnaps_web import match as match_lib
 
 NAME_MAX = 20
 
+#: First names a seated bot gets, one not yet used at its table.
+BOT_NAMES = (
+    "Harry", "Hermione", "Ron", "Ginny", "Neville", "Luna", "Fred", "George",
+    "Percy", "Bill", "Charlie", "Molly", "Arthur", "Albus", "Minerva",
+    "Severus", "Rubeus", "Sirius", "Remus", "Nymphadora", "Draco", "Lucius",
+    "Narcissa", "Bellatrix", "Cedric", "Cho", "Dean", "Seamus", "Lavender",
+    "Parvati", "Padma", "Oliver", "Viktor", "Fleur", "Dobby", "Kreacher",
+    "Horace", "Filius", "Pomona", "Sybill", "Gilderoy", "Dolores", "Argus",
+    "Poppy", "Kingsley", "Alastor", "Aberforth", "Dudley", "Petunia",
+    "Vernon", "Myrtle", "Winky", "Griphook", "Xenophilius", "Tom",
+)
+
 
 class TableError(ValueError):
   """A request the table refuses (bad seat, not allowed, wrong phase)."""
@@ -60,7 +72,7 @@ class Seat:
 
   Attributes:
     kind: "empty", "human" or "bot".
-    name: the player's nickname or the bot's label.
+    name: the player's nickname or the bot's name (from BOT_NAMES).
     token: the human's seat token.
     bot: the bot's catalog name.
   """
@@ -78,10 +90,12 @@ class Listener:
   Attributes:
     token: the token it connected with, or None (a spectator).
     send: sends one snapshot.
+    reveal: a spectator on the all-cards watch port (sees every hand).
   """
 
   token: Optional[str]
   send: Callable[[dict], Awaitable[None]]
+  reveal: bool = False
 
 
 class Table:
@@ -176,8 +190,14 @@ class Table:
       raise TableError(f"no bot {bot!r}")
     if s.kind == "human" and s.token != token:
       raise TableError(f"seat {seat} has a player")
-    self.seats[seat] = Seat("bot", self._bots[bot].label, None, bot)
+    self.seats[seat] = Seat("bot", self._bot_name(seat), None, bot)
     self._changed()
+
+  def _bot_name(self, seat: int) -> str:
+    """A random name from BOT_NAMES that no other seat uses."""
+    taken = {s.name for i, s in enumerate(self.seats) if i != seat}
+    free = [n for n in BOT_NAMES if n not in taken]
+    return self._rng.choice(free or list(BOT_NAMES))
 
   def clear_seat(self, token: Optional[str], seat: int) -> None:
     """Empties a seat: the creator takes a bot out, or a player leaves."""
@@ -321,13 +341,20 @@ class Table:
         "kind": s.kind,
         "name": s.name,
         "bot": s.bot,
+        "botLabel": self._bots[s.bot].label if s.bot in self._bots else None,
         "online": self.online(i),
         "you": s.kind == "human" and token is not None and s.token == token,
     }
 
-  def snapshot(self, token: Optional[str]) -> dict:
-    """Everything the holder of `token` (None: a spectator) may see."""
-    seat = self.seat_of(token)
+  def snapshot(self, token: Optional[str], reveal: bool = False) -> dict:
+    """Everything the holder of `token` (None: a spectator) may see.
+
+    `reveal`: a spectator on the watch port, who sees every hand (a token
+    is ignored there).
+    """
+    seat = None if reveal else self.seat_of(token)
+    if reveal:
+      token = None
     return {
         "type": "table",
         "id": self.id,
@@ -339,7 +366,8 @@ class Table:
         "match": self.match.to_json() if self.match else None,
         "dealer": self.deal.dealer if self.deal else None,
         "toMove": self.deal.to_move() if self.deal else None,
-        "frame": self.deal.frame(seat) if self.deal else None,
+        "frame": self.deal.frame(seat, reveal) if self.deal else None,
+        "reveal": reveal,
         "lastResult": self.last_result,
         "bots": [{"name": b.name, "label": b.label} for b in self._bots.values()],
     }
@@ -367,6 +395,6 @@ class Table:
 
   async def _send(self, listener: Listener) -> None:
     try:
-      await listener.send(self.snapshot(listener.token))
+      await listener.send(self.snapshot(listener.token, listener.reveal))
     except Exception:  # pylint: disable=broad-except
       self._listeners.discard(listener)

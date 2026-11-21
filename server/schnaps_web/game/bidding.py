@@ -46,8 +46,13 @@ first:
    * "greedy": the legal bid of highest value; a call or a fleck must beat
      passing by `margin` points.
    * "pass": always pass (the Normal-only baseline).
-  * "set_aware": greedy on the points that count for the set, flecking only
-    when it cannot cost the set or the bot is very sure (SetAwareRule).
+  * "set_aware": the bid most likely to win the set (set_win_table),
+    flecking only when it cannot cost the set or the bot is very sure
+    (SetAwareRule).
+
+Hard rules. `allowed_bids` removes two calls before any rule chooses: no
+Schnapser over the other partnership's contract, and no Bauern without the
+trump As. The players pass only the allowed bids to `estimate` and the rule.
 
 The set situation. `set_context(info)` reads an InfoState key "set_need"
 (i32[B, 2], points each partnership still needs, seats 0/2 first) when an
@@ -63,6 +68,7 @@ from typing import Any, Callable, Mapping, NamedTuple, Protocol, Union
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 
 from open_spiel.python.jax.games import schnaps as game
 
@@ -206,6 +212,40 @@ def _bid_mask(legal: jax.Array) -> jax.Array:
   return legal & (acts >= PASS)
 
 
+def allowed_bids(info: Mapping[str, jax.Array], legal: jax.Array) -> jax.Array:
+  """`legal` without the bids the hard rules forbid (module doc).
+
+  Every bid rule chooses among these, whatever the estimates say:
+
+  * no Schnapser over the other partnership's contract (the Normal game
+    counts as the Caller's, seat 0): a fleck has the same best gain (6), and
+    one trick taken by the other side does not lose it all;
+  * no Bauern without the trump As: the As wins any trick it is played to,
+    so whoever else holds it takes a trick and the Bauern fails.
+
+  Args:
+    info: the InfoStates, leaves [B, ...].
+    legal: bool[B, 39].
+
+  Returns:
+    bool[B, 39].
+  """
+  seat = jnp.asarray(info["seat"], jnp.int32)
+  theirs = jnp.asarray(info["declarer"], jnp.int32) % 2 != seat % 2
+  trump = jnp.asarray(info["trump"], jnp.int32)
+  hand = jnp.asarray(info["hand"], jnp.bool_)
+  rows = jnp.arange(seat.shape[0])
+  trump_as = jnp.clip(trump, 0, game.NUM_SUITS - 1) * game.NUM_RANKS + (
+      game.NUM_RANKS - 1
+  )
+  has_as = (trump >= 0) & hand[rows, trump_as]
+  acts = jnp.arange(NUM_ACTIONS)
+  forbidden = (
+      (acts == call_action(game.SCHNAPSER)) & theirs[:, None]
+  ) | ((acts == call_action(game.BAUERN)) & ~has_as[:, None])
+  return legal & ~forbidden
+
+
 class GreedyRule:
   """The legal bid of highest value; calls and flecks must beat pass by margin.
 
@@ -248,13 +288,73 @@ class PassRule:
     return jnp.full(ctx.legal.shape[:1], PASS, jnp.int32)
 
 
-class SetAwareRule:
-  """Greedy on the points that count for the set, with a cautious fleck.
+#: Points a pair needs to win a set (31 counted down).
+SET_POINTS = 31
+#: How many deals scored k points for the pair that won them, k: count. From
+#: 2,048 deals of the site players, Large vs Basic (1,024 deal pairs, seed 1,
+#: schnaps(max_flecks=2), no set score; schnaps_training/deal_points.py).
+#: Used by `set_win_table`.
+DEAL_POINTS = {
+    1: 510, 2: 372, 3: 535, 4: 28, 6: 237, 8: 4, 9: 323, 12: 29, 18: 4,
+    48: 2, 72: 4,
+}
 
-  With the set situation known, a bid's outcomes are valued by the points
-  that still matter: a contract won is worth min(stake, our_need) to us,
-  one lost costs min(stake, their_need); a Normal game's value is clipped to
-  [-their_need, our_need]. Without it, the plain estimates are used.
+
+def _normal_shares(deal_points):
+  """The Normal game's share of 1, 2 and 3 points (the deals worth <= 3)."""
+  ks = [k for k in sorted(deal_points) if k <= 3]
+  total = sum(deal_points[k] for k in ks)
+  return tuple(ks), tuple(deal_points[k] / total for k in ks)
+
+
+def set_win_table(deal_points=None, set_points: int = SET_POINTS) -> np.ndarray:
+  """W[a, b]: the chance a pair needing a points wins the set first.
+
+  The other pair needs b. Each later deal is won by either pair with equal
+  chance and is worth k points with the frequency of `deal_points`.
+  W[0, b] = 1 and W[a, 0] = 0 for a, b > 0 (the set is already decided);
+  W[0, 0] = 0.5 is never used.
+
+  Args:
+    deal_points: {k: count}; default DEAL_POINTS.
+    set_points: the set's length.
+
+  Returns:
+    f64[set_points + 1, set_points + 1].
+  """
+  deal_points = DEAL_POINTS if deal_points is None else deal_points
+  ks = np.asarray(sorted(deal_points), np.int64)
+  ps = np.asarray([deal_points[k] for k in ks], np.float64)
+  ps = ps / ps.sum()
+  n = set_points
+  w = np.zeros((n + 1, n + 1))
+  w[0, 1:] = 1.0
+  w[0, 0] = 0.5
+  for total in range(2, 2 * n + 1):  # every outcome lowers a + b
+    for a in range(max(1, total - n), min(n, total - 1) + 1):
+      b = total - a
+      won = w[np.maximum(a - ks, 0), b]
+      lost = w[a, np.maximum(b - ks, 0)]
+      w[a, b] = float(np.sum(ps * 0.5 * (won + lost)))
+  return w
+
+
+class SetAwareRule:
+  """Plays for the set: each bid is valued by the chance of winning the set.
+
+  With the set situation known, a bid's outcomes are valued by the chance
+  that our pair then wins the set (`set_win_table`, value="win"):
+    * a contract with stake s that our side wins with chance q:
+      q * W[our - s, their] + (1 - q) * W[our, their - s];
+    * a Normal game with expected value V (times 2^flecks): won or lost with
+      the chance that gives V, by 1, 2 or 3 points in the shares of
+      DEAL_POINTS.
+  So a contract lost when the other pair needs few points counts as the set
+  lost, and a long shot is called only when it really is the best chance.
+  value="points" keeps the rule of 2026-11-14: a contract won is worth
+  min(stake, our_need), one lost costs min(stake, their_need), and a Normal
+  game's value is clipped to [-their_need, our_need]. Without the set
+  situation, the plain estimates are used.
 
   A fleck (on the other side's contract, or back on ours) is allowed only
   when
@@ -264,7 +364,8 @@ class SetAwareRule:
   A fleck on the Normal game needs an expected `normal_fleck_min` points.
   The estimates of a contract seen from the defence are less reliable (the
   contract networks never saw the hands people actually call), hence the
-  caution. Calls must beat passing by `margin` points; ties go to pass.
+  caution. When values are points, calls must beat passing by `margin`
+  points; ties go to pass.
 
   Attributes:
     name: "set_aware".
@@ -277,17 +378,55 @@ class SetAwareRule:
       fleck_sure: float = 0.75,
       normal_fleck_min: float = 1.5,
       margin: float = 0.0,
+      value: str = "win",
   ):
+    if value not in ("win", "points"):
+      raise ValueError(
+          f"set_aware value must be 'win' or 'points', got {value!r}"
+      )
     self.fleck_sure = float(fleck_sure)
     self.normal_fleck_min = float(normal_fleck_min)
     self.margin = float(margin)
+    self.value = value
+    self._table = set_win_table()
+    self._normal = _normal_shares(DEAL_POINTS)
 
   def kwargs(self) -> dict[str, Any]:
     return {
         "fleck_sure": self.fleck_sure,
         "normal_fleck_min": self.normal_fleck_min,
         "margin": self.margin,
+        "value": self.value,
     }
+
+  def win_value(self, ctx: BidContext) -> jax.Array:
+    """f32[B, 39]: our pair's chance of winning the set after each bid."""
+    est, s = ctx.estimates, ctx.set
+    q = jnp.where(est.my_side_declares, est.p_success, 1.0 - est.p_success)
+    table = jnp.asarray(self._table, jnp.float32)
+    n = table.shape[0] - 1
+    our = s.our_need.astype(jnp.int32)[:, None]
+    their = s.their_need.astype(jnp.int32)[:, None]
+
+    def w(our_after, their_after):
+      return table[jnp.clip(our_after, 0, n), jnp.clip(their_after, 0, n)]
+
+    stake = jnp.rint(jnp.nan_to_num(est.stake)).astype(jnp.int32)
+    contract = q * w(our - stake, their) + (1.0 - q) * w(our, their - stake)
+    # The Normal game: its doubling per fleck, and the chance p of winning
+    # it that gives the estimate V with the shares of 1, 2 and 3 points.
+    acts = jnp.arange(NUM_ACTIONS)
+    flecks = jnp.asarray(ctx.info["flecks"], jnp.int32)[:, None]
+    mult = jnp.left_shift(1, flecks + (acts == FLECK)).astype(jnp.int32)
+    ks, shares = self._normal
+    mean = sum(k * m for k, m in zip(ks, shares))
+    v = jnp.nan_to_num(est.value, neginf=0.0, posinf=0.0) / mult
+    p = jnp.clip((v / mean + 1.0) / 2.0, 0.0, 1.0)
+    normal = sum(
+        m * (p * w(our - k * mult, their) + (1.0 - p) * w(our, their - k * mult))
+        for k, m in zip(ks, shares)
+    )
+    return jnp.where(est.stake > 0, contract, normal)
 
   def choose(self, ctx: BidContext, key: jax.Array) -> jax.Array:
     del key
@@ -298,12 +437,16 @@ class SetAwareRule:
     stake = est.stake
     # Our side's chance of winning each bid's contract.
     q = jnp.where(est.my_side_declares, est.p_success, 1.0 - est.p_success)
-    contract_value = q * jnp.minimum(stake, our) - (1.0 - q) * jnp.minimum(
-        stake, their
-    )
-    normal_value = jnp.clip(est.value, -their, our)
-    set_value = jnp.where(stake > 0, contract_value, normal_value)
+    if self.value == "win":
+      set_value = self.win_value(ctx)
+    else:
+      contract_value = q * jnp.minimum(stake, our) - (1.0 - q) * jnp.minimum(
+          stake, their
+      )
+      normal_value = jnp.clip(est.value, -their, our)
+      set_value = jnp.where(stake > 0, contract_value, normal_value)
     value = jnp.where(s.known[:, None], set_value, est.value)
+    in_points = ~s.known | (self.value == "points")
     # The fleck's conditions, on the contract standing now (the pass entry).
     stake_now = stake[:, PASS]
     q_now = q[:, PASS]
@@ -313,8 +456,8 @@ class SetAwareRule:
     normal_ok = ~called & (est.value[:, PASS] >= self.normal_fleck_min)
     fleck_ok = set_free | sure | normal_ok
     allowed = _bid_mask(ctx.legal) & ((acts != FLECK) | fleck_ok[:, None])
-    score = value - jnp.where(acts > FLECK, self.margin, 0.0)
-    score = jnp.where(allowed, score, -jnp.inf)
+    margin = jnp.where(in_points[:, None] & (acts > FLECK), self.margin, 0.0)
+    score = jnp.where(allowed, value - margin, -jnp.inf)
     return jnp.argmax(score, axis=-1).astype(jnp.int32)
 
 

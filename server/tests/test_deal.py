@@ -120,3 +120,46 @@ def test_declarations_are_in_every_view(game):
     if seen >= 5:
       break
   assert seen >= 1
+
+
+def test_bids_and_call_labels(game):
+  from schnaps_web.game import success
+  chances = 0
+  for seed in range(30):
+    d = deal_lib.Deal(game, 0, random.Random(seed))
+    rng = random.Random(seed)
+    d.apply(d.to_move(), rng.choice(d.state.legal_actions()))  # the trump
+    while not d.is_over and 32 in d.state.legal_actions():
+      seat = d.to_move()
+      f = d.frame(seat)
+      for a in f["presentation"]["actions"]:
+        if 34 <= a["id"] <= 38:
+          assert not a["label"].startswith("Call")
+          assert a["hint"]["button"] == a["label"]
+          if "chance" in a["hint"]:
+            chances += 1
+            assert 0.0 <= a["hint"]["chance"] <= 1.0
+      d.apply(seat, rng.choice(d.state.legal_actions()))
+    bids = d.frame(None)["presentation"]["view"]["bids"]
+    assert bids and all(b["bid"] in ("Pass", "Fleck", "Schnapser", "Lomt", "Bauern", "Jodler", "Hermort") for b in bids)
+    assert bids[0]["seat"] == 0
+  assert chances > 0
+  # The table: a hand of all five trumps is a near-sure Schnapser for the
+  # Caller; class keys put the trump first, the rest descending.
+  trump = 0
+  cards = [0, 1, 2, 3, 4]
+  assert success.class_key(cards, trump, True) == "31,0,0,0"
+  assert success.class_key([5, 6, 15, 16, 17], 0, True) == "0,7,3,0"
+  assert success.class_key([5, 6, 15, 16, 17], 0, False) == "7,3,0,0"
+  assert success.chance("Schnapser", cards, trump, 0) > 0.9
+  assert success.chance("Jodler", cards, trump, 0) is None
+
+
+def test_reveal_shows_every_hand(game):
+  d = deal_lib.Deal(game, 1, random.Random(3))
+  d.apply(d.to_move(), d.state.legal_actions()[0])  # the trump; all dealt
+  assert all(c is None for c in d.frame(None)["presentation"]["view"]["seats"][1]["cards"])
+  f = d.frame(None, reveal=True)
+  for entry in f["presentation"]["view"]["seats"]:
+    assert entry["cards"] and None not in entry["cards"]
+  assert f["presentation"]["actions"] == []

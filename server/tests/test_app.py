@@ -131,3 +131,54 @@ def test_a_full_match_of_bots_watched_by_the_creator(client):
   assert client.delete(f"/api/tables/{tid}", headers=_h("x")).status_code == 403
   assert client.delete(f"/api/tables/{tid}", headers=_h(anna)).status_code == 200
   assert client.get("/api/tables").json() == []
+
+
+def test_bots_get_distinct_first_names(client):
+  from schnaps_web import table as table_lib
+  tid, anna = _create(client, seat=0)
+  for seat in (1, 2, 3):
+    client.put(f"/api/tables/{tid}/seats/{seat}/bot", json={"bot": "random"}, headers=_h(anna))
+  seats = client.get("/api/tables").json()[0]["seats"]
+  names = [s["name"] for s in seats[1:]]
+  assert len(set(names)) == 3
+  assert all(n in table_lib.BOT_NAMES for n in names)
+  assert all(s["botLabel"] == "Random" for s in seats[1:])
+
+
+def test_the_watch_app_shows_every_hand_and_changes_nothing():
+  bots = {"random": bots_lib.RandomBot(seed=1)}
+  main = app_lib.create_app(FAST, bots)
+  watch = app_lib.create_watch_app(main.state.lobby, FAST)
+
+  # One client (one event loop, as in serve()); paths under /w/ go to the
+  # watch app.
+  async def both(scope, receive, send):
+    if scope["type"] != "lifespan" and scope["path"].startswith("/w/"):
+      scope = dict(scope, path=scope["path"][2:], raw_path=None)
+      return await watch(scope, receive, send)
+    return await main(scope, receive, send)
+
+  with testclient.TestClient(both) as c:
+    assert c.get("/api/site").json() == {"watch": False}
+    assert c.get("/w/api/site").json() == {"watch": True}
+    tid, anna = _create(c, seat=0)
+    for seat in range(4):
+      c.put(f"/api/tables/{tid}/seats/{seat}/bot", json={"bot": "random"}, headers=_h(anna))
+    assert [t["id"] for t in c.get("/w/api/tables").json()] == [tid]
+    # Nothing that changes a table exists on the watch app.
+    assert c.post("/w/api/tables", json={"name": "x", "player": "y"}).status_code in (404, 405)
+    assert c.post(f"/w/api/tables/{tid}/start", headers=_h(anna)).status_code in (404, 405)
+    assert c.post(f"/w/api/tables/{tid}/actions", json={"action": 0}, headers=_h(anna)).status_code in (404, 405)
+    # Its socket shows every hand, ignores tokens, and offers no moves.
+    with c.websocket_connect(f"/w/ws/tables/{tid}?token={anna}") as ws:
+      ws.receive_json()
+      assert c.post(f"/api/tables/{tid}/start", headers=_h(anna)).status_code == 200
+      snap = _until(
+          ws,
+          lambda s: s["frame"] is not None
+          and all(e["cards"] for e in s["frame"]["presentation"]["view"]["seats"]),
+      )
+    assert snap["reveal"] and snap["you"] is None and not snap["isCreator"]
+    for entry in snap["frame"]["presentation"]["view"]["seats"]:
+      assert all(card is not None for card in entry["cards"])
+    assert snap["frame"]["presentation"]["actions"] == []

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import type {JSX} from 'react';
+import type {JSX, ReactNode} from 'react';
 
 import {CardFace} from './card_face.tsx';
 import {actionForCard} from './card_hints.ts';
@@ -24,6 +24,8 @@ import './cards.css';
 export interface HandProps {
   /** What the row is: "Your hand", "Player 1". */
   readonly label: string;
+  /** schnaps-web: what the heading shows instead of `label` (may hold icons). */
+  readonly title?: ReactNode;
   /** The cards' codes, null for each face-down card. */
   readonly cards: ReadonlyArray<string | null>;
   /** The action each playable card plays, from `cardActions`. */
@@ -48,6 +50,7 @@ export interface HandProps {
  */
 export function Hand({
   label,
+  title,
   cards,
   playable = new Map(),
   play = null,
@@ -58,7 +61,7 @@ export function Hand({
 }: HandProps): JSX.Element {
   return (
     <section className="card-row" aria-label={label}>
-      <h4 className="card-row__label">{label}</h4>
+      <h4 className="card-row__label">{title ?? label}</h4>
       <div
         className="card-row__cards"
         data-fanned={fanned ? 'true' : undefined}
