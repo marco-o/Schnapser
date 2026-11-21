@@ -154,7 +154,7 @@ network.
 
 **On a phone, hold it sideways.** In landscape (any screen at most 500 px
 tall) the felt fills the screen under a slim header and scales to fit, down
-to 640 × 360; the call buttons, the deal's result and the Resign/Allmine bar
+to 640 × 360; the call buttons, the deal's result and the Show/Resign bar
 float over the felt, and the scoreboard, seats and score sheet are below it.
 Held upright, the page asks you to turn the phone. (CSS: the `max-height:
 500px` blocks at the end of `site.css` and `gui/games/schnaps/schnaps.css`.)

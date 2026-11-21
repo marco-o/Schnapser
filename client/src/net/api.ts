@@ -42,29 +42,20 @@ export interface DealResult {
   readonly throw?: DealThrow | null;
 }
 
-/** A recorded throw: who (table seat), which, and an Allmine's verdict. */
+/** A recorded throw: who (table seat) and which. */
 export interface DealThrow {
   readonly kind: ThrowKind;
   readonly seat: number;
-  readonly accepted: boolean | null;
   readonly text: string;
 }
 
-export type ThrowKind = 'resign' | 'allmine';
+export type ThrowKind = 'resign';
 
 /** The throw in a frame's view (game seats; deal.Throw.to_json). */
 export interface FrameThrow {
   readonly kind: ThrowKind;
   /** The thrower's game seat. */
   readonly seat: number;
-  readonly accepted: boolean | null;
-  /** Why an Allmine was refused: the card that takes a trick, or a text. */
-  readonly reason: {
-    readonly seat?: number;
-    readonly card?: string;
-    readonly cardName?: string;
-    readonly text?: string;
-  } | null;
   readonly trick: number;
   readonly text: string;
 }
@@ -82,8 +73,8 @@ export interface MatchInfo {
 export interface TableFrame extends Frame {
   readonly seatMap: readonly number[];
   readonly presentation: Presentation;
-  /** The throws offered to the viewer now (none to spectators). */
-  readonly throws?: {readonly resign: boolean; readonly allmine: boolean};
+  /** What the viewer may do now: resign, show the hand (none to spectators). */
+  readonly throws?: {readonly resign: boolean; readonly show: boolean};
 }
 
 /** What the table's WebSocket pushes (table.snapshot on the server). */
@@ -193,9 +184,12 @@ export const api = {
     call('POST', `/api/tables/${id}/start`, {}, token),
   act: (id: string, action: number, token: string | null) =>
     call('POST', `/api/tables/${id}/actions`, {action}, token),
-  /** Resign, or claim every remaining trick (docs/cardthrowup.md). */
+  /** Resign (docs/cardthrowup.md). */
   throwCards: (id: string, kind: ThrowKind, token: string | null) =>
     call('POST', `/api/tables/${id}/throw`, {kind}, token),
+  /** Show the hand to the two opponents (docs/cardthrowup.md). */
+  show: (id: string, token: string | null) =>
+    call('POST', `/api/tables/${id}/show`, {}, token),
   /** Between deals: hold the next deal back (on) or let it come (off). */
   wait: (id: string, on: boolean, token: string | null) =>
     call('POST', `/api/tables/${id}/wait`, {on}, token),

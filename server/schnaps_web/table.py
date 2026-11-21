@@ -15,9 +15,9 @@ creator may put a bot into any seat but a human's, take a bot out (its seat
 becomes empty) and start the match once all four seats are filled. If the
 seat to move is empty or its player is offline, play simply waits.
 
-During the card play a seated player may also throw their cards
-(docs/cardthrowup.md): Resign or Allmine (`throw`), which ends the deal;
-bots claim Allmine when the solver proves it, and never resign.
+During the card play a seated player may also show their hand to the
+opponents (`show`), and resign (`throw`), which ends the deal
+(docs/cardthrowup.md). Bots never show and never resign.
 
 Privacy: a connection's view is chosen by its token (the seat it holds);
 without one it is a spectator's. Nobody is ever sent another seat's hand.
@@ -59,12 +59,8 @@ BOT_NAMES = (
 )
 
 
-#: The cardthrowups a seat may make (Table.throw).
-THROWS = ("resign", "allmine")
-
-#: The most solver nodes a bot's Allmine check may take (a few thousand at
-#: most in practice; over the budget the bot just plays on).
-BOT_CLAIM_BUDGET = 50_000
+#: The cardthrowups that end a deal (Table.throw).
+THROWS = ("resign",)
 
 
 class TableError(ValueError):
@@ -306,11 +302,11 @@ class Table:
     self._changed()
 
   def throw(self, token: Optional[str], kind: Any) -> None:
-    """The token's seat throws its cards: "resign" or "allmine".
+    """The token's seat throws its cards: "resign".
 
     The same checks as act(), but not only on the seat's turn
-    (docs/cardthrowup.md; deal.Deal.resign and claim). The deal is then
-    over; the driver records it.
+    (docs/cardthrowup.md; deal.Deal.resign). The deal is then over; the
+    driver records it.
     """
     seat = self.seat_of(token)
     if seat is None:
@@ -320,10 +316,24 @@ class Table:
     if kind not in THROWS:
       raise TableError(f"a throw is one of {', '.join(THROWS)}")
     try:
-      if kind == "resign":
-        self.deal.resign(seat)
-      else:
-        self.deal.claim(seat)
+      self.deal.resign(seat)
+    except deal_lib.DealError as e:
+      raise TableError(str(e)) from e
+    self._changed()
+
+  def show(self, token: Optional[str]) -> None:
+    """The token's seat shows its hand to the two opponents.
+
+    During the card play, once per deal, also out of turn
+    (docs/cardthrowup.md; deal.Deal.show). Play goes on.
+    """
+    seat = self.seat_of(token)
+    if seat is None:
+      raise Forbidden("you have no seat at this table")
+    if self.phase != "playing":
+      raise TableError("no deal is in progress")
+    try:
+      self.deal.show(seat)
     except deal_lib.DealError as e:
       raise TableError(str(e)) from e
     self._changed()
@@ -336,7 +346,6 @@ class Table:
       throw = {
           "kind": t["kind"],
           "seat": self.deal.table_seat(t["seat"]),
-          "accepted": t["accepted"],
           "text": t["text"],
       }
     out = self.match.record(
@@ -379,12 +388,6 @@ class Table:
         continue
       s = self.seats[seat]
       if s.kind != "bot":
-        continue
-      # A bot claims every remaining trick when the solver proves it
-      # (docs/cardthrowup.md); it never resigns.
-      if deal.claim_holds(seat, BOT_CLAIM_BUDGET):
-        deal.claim(seat)
-        self._changed()
         continue
       bot = self._bots[s.bot]
       moves = len(deal.state.history())

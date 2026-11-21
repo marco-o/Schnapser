@@ -1,8 +1,9 @@
 # cardthrowup: throwing your cards on the table (2026-11-21)
 
-Status: **built** (2026-11-21). The user's answers to §6 and the as-built
-notes are at the end (§7); where they differ from the proposal below, §6
-and §7 win.
+Status: **built, then revised** (2026-11-21). **§8 is the current
+design: Allmine is gone, and a Show button lets a player lay their hand
+open to the opponents only.** §1–§7 are the history: the first proposal,
+the user's answers and the first as-built notes.
 
 In human games a player sometimes lays their cards open because the outcome
 is clear to them. It has two meanings:
@@ -252,3 +253,62 @@ never resign.
 Checked end to end in the browser (2026-11-21): a bot partner's accepted
 claim after the first card, Resign of a Lomt from the first card, and a
 refused Normal-game Allmine before the first lead with its reason.
+
+## 8. Revision: Show instead of Allmine (2026-11-21)
+
+**Why.** In testing, the bots claimed Allmine where a person would not:
+- **A defender's claim was really one trick.** The defenders of a contract
+  end it with their first trick, so for them "every remaining trick" meant
+  just the next one, with nothing certain about the whole game.
+- **A Schnapser was claimed from three sure tricks.** The solver, seeing
+  every hand, could prove 66 when no player could see it from their own
+  cards.
+
+The user decided: **remove Allmine, keep Resign, and add Show**.
+
+**Show.**
+- During the card play, any seated player may lay their hand open to the
+  **two opponents only**: not to the partner, not to spectators. The
+  all-cards watch port still sees everything.
+- Play goes on. The hand stays open to the opponents for the rest of the
+  deal, as it is played down. Once per seat and deal; it can't be undone,
+  so it asks to confirm.
+- The purpose is that the opponents can see the deal is lost and resign.
+  So once an opponent has shown, **Resign is offered at once**, even in a
+  Normal game before the third trick. Otherwise Resign is unchanged: the
+  whole play in a contract, from the third trick in a Normal game.
+- Everyone at the table gets a notice: "Anna shows their cards to the
+  opponents".
+- Bots never show and never resign. They also ignore shown cards: their
+  networks have no input for them.
+
+**What changed in the code.**
+- `deal.py`:
+  - `Deal.show` and `can_show`, with `Deal.shown` (game seats);
+  - `can_resign` opens for the side whose opponent has shown;
+  - `Throw` is a resignation only;
+  - claim, `claim_holds` and `can_claim` are gone.
+- `game/view.py`: `present(..., shown)` opens a shown hand to the other
+  partnership, and the view carries `"shown"`.
+- `game/oracle.py`: the claim solver (`ClaimSolver`, `Budget`,
+  `first_lost_trick`) is removed. The card-play copy and `position` stay,
+  for Resign's scoring.
+- `table.py` and `app.py`:
+  - a new `POST /api/tables/{id}/show`;
+  - `throw` accepts only `"resign"`;
+  - the bots' Allmine check is gone.
+- Client:
+  - `throw_bar.tsx` has Show and Resign, and the notices;
+  - Allmine strings removed, Show strings added (it/de/en);
+  - `frame.throws` is `{resign, show}`.
+
+**Tests.** `server/tests/test_cardthrowup.py`:
+- a shown hand opens to the opponents only (not the partner, not
+  spectators), once per deal, and stays open as it is played down;
+- an opponent of a shower may resign at once in a Normal game's first
+  trick;
+- Show and Resign over the API;
+- bots never throw in a whole match.
+
+All 61 server tests and 8 client tests pass. It was checked in the browser:
+an opponent sees the shown hand face up, with the notice and Resign.

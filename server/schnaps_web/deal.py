@@ -11,31 +11,29 @@ reads:
    "seatMap": [table seat of game seat 0..3],
    "presentation": {"view": game.view.present(...),
                     "actions": [{"id", "label", "hint"}]},  # the viewer's moves
-   "throws": {"resign": bool, "allmine": bool},  # offered to the viewer
+   "throws": {"resign": bool, "show": bool},  # offered to the viewer
    "returns": [game seats' returns] or None}
 
 A seated viewer sees its own hand only, and its legal moves when it is to
 move; a spectator (None) sees no hand and no moves.
 
-cardthrowup (docs/cardthrowup.md): during the card play a seat may throw
-its cards on the table, which ends the deal at once.
+cardthrowup (docs/cardthrowup.md), during the card play:
 
-  * Resign: always accepted. The resigner's side loses: a contract fails
-    (declaring side) or is made (defenders); in a Normal game the other
-    side wins as if it had just reached 66 (3 if the resigners have no
-    trick, 2 if under 33 points, else 1). All times 2^flecks. Offered
-    during the whole play of a contract, from the third trick in a Normal
-    game.
-  * Allmine: "my side takes every remaining trick", offered during the
-    whole play. The server checks it exactly with every hand open
-    (game.oracle.ClaimSolver). A claim that holds is played out along the
-    solver's line on a copy of the state, so the engine scores it; a wrong
-    claim counts as a resignation (strict), with the reason (the card that
-    takes a trick).
+  * Show: a seat lays its hand open to the two opponents (not its partner,
+    not spectators), so they can see the deal is lost and resign. Play goes
+    on; the hand stays open to them for the rest of the deal, as it is
+    played down. Offered during the whole play, once per seat.
+  * Resign: ends the deal at once and is always accepted. The resigner's
+    side loses: a contract fails (declaring side) or is made (defenders);
+    in a Normal game the other side wins as if it had just reached 66 (3
+    if the resigners have no trick, 2 if under 33 points, else 1). All
+    times 2^flecks. Offered during the whole play of a contract; in a
+    Normal game from the third trick, or at once when an opponent has shown
+    their hand.
 
-A thrown deal keeps its state as it was at the throw; every hand then shows
-to everyone, and its returns come from the throw. The view carries the
-throw (game.view.present).
+A resigned deal keeps its state as it was at the throw; every hand then
+shows to everyone, and its returns come from the throw. The view carries
+the throw and the shown seats (game.view.present).
 """
 
 import dataclasses
@@ -60,37 +58,29 @@ class DealError(ValueError):
 
 @dataclasses.dataclass(frozen=True)
 class Throw:
-  """A cardthrowup that ended the deal (module doc).
+  """A cardthrowup that ended the deal (module doc): a resignation.
 
   Attributes:
-    kind: "resign" or "allmine".
+    kind: "resign".
     seat: the thrower's game seat.
-    accepted: an Allmine's verdict (a wrong one counts as a resignation);
-      None for a resignation.
-    reason: why an Allmine was refused: {"seat", "card" (client code),
-      "cardName"} for the card that takes a trick, or {"text"}; else None.
     trick: the tricks finished at the throw.
     returns: the game seats' returns the throw gives.
   """
 
   kind: str
   seat: int
-  accepted: Optional[bool]
-  reason: Optional[dict]
   trick: int
   returns: tuple[float, ...]
 
   @property
   def text(self) -> str:
-    """The deal log's name: "Resign", "Allmine" or "Allmine refused"."""
-    return view.throw_text(self.kind, self.accepted)
+    """The deal log's name: "Resign"."""
+    return view.throw_text(self.kind)
 
   def to_json(self) -> dict:
     return {
         "kind": self.kind,
         "seat": self.seat,
-        "accepted": self.accepted,
-        "reason": self.reason,
         "trick": self.trick,
         "text": self.text,
     }
@@ -104,6 +94,7 @@ class Deal:
     state: the pyspiel state, never at a chance node between moves. After a
       throw it stays as it was at the throw.
     throw: the throw that ended the deal, or None.
+    shown: the game seats that showed their hand to the opponents.
   """
 
   def __init__(self, game: pyspiel.Game, dealer: int, rng: random.Random):
@@ -111,6 +102,7 @@ class Deal:
     self._rng = rng
     self.state = game.new_initial_state()
     self.throw: Optional[Throw] = None
+    self.shown: set[int] = set()
     self._deal_chance()
 
   def _deal_chance(self) -> None:
@@ -187,12 +179,13 @@ class Deal:
                 viewer,
                 reveal,
                 self.throw.to_json() if self.throw else None,
+                sorted(self.shown),
             ),
             "actions": actions,
         },
         "throws": {
             "resign": seat is not None and self.can_resign(seat),
-            "allmine": seat is not None and self.can_claim(seat),
+            "show": seat is not None and self.can_show(seat),
         },
         "returns": self._returns() if self.is_over else None,
     }
@@ -234,21 +227,32 @@ class Deal:
         line.rstrip() == "Phase: Play" for line in str(self.state).splitlines()
     )
 
-  def can_claim(self, seat: int) -> bool:
-    """Whether table seat `seat` is offered Allmine: the whole card play."""
-    del seat  # any seat, also out of turn
-    return self.in_play()
+  def can_show(self, seat: int) -> bool:
+    """Whether table seat `seat` is offered Show: the card play, once."""
+    return self.in_play() and self.game_seat(seat) not in self.shown
+
+  def show(self, seat: int) -> None:
+    """Table seat `seat` lays its hand open to the opponents (module doc).
+
+    Raises:
+      DealError: not in the card play, or already shown.
+    """
+    if not self.in_play():
+      raise DealError("you can only show your cards during the card play")
+    if self.game_seat(seat) in self.shown:
+      raise DealError("your cards are already shown")
+    self.shown.add(self.game_seat(seat))
 
   def can_resign(self, seat: int) -> bool:
     """Whether table seat `seat` is offered Resign (module doc)."""
-    del seat  # either side, also out of turn
     if not self.in_play():
       return False
     pos = oracle.position(self.state)
-    return (
-        pos.rules.contract != oracle.NORMAL
-        or pos.play[6] >= NORMAL_RESIGN_FROM
-    )
+    if pos.rules.contract != oracle.NORMAL:
+      return True
+    team = oracle.team_of(self.game_seat(seat))
+    opponent_shown = any(oracle.team_of(g) != team for g in self.shown)
+    return opponent_shown or pos.play[6] >= NORMAL_RESIGN_FROM
 
   def resign(self, seat: int) -> str:
     """Table seat `seat` resigns for its side; returns the log text.
@@ -260,66 +264,8 @@ class Deal:
       raise DealError("you cannot resign now")
     g = self.game_seat(seat)
     pos = oracle.position(self.state)
-    self.throw = Throw(
-        "resign", g, None, None, pos.play[6], _resign_returns(pos, g)
-    )
+    self.throw = Throw("resign", g, pos.play[6], _resign_returns(pos, g))
     return self.throw.text
-
-  def claim(self, seat: int) -> str:
-    """Table seat `seat` claims every remaining trick; returns the log text.
-
-    The claim is checked with every hand open. If it holds, the solver's
-    line is played out on a copy of the state, whose returns score it; if
-    not, it counts as a resignation (module doc).
-
-    Raises:
-      DealError: not in the card play.
-    """
-    if not self.can_claim(seat):
-      raise DealError("you can only claim during the card play")
-    g = self.game_seat(seat)
-    pos = oracle.position(self.state)
-    team = oracle.team_of(g)
-    line, value = oracle.ClaimSolver(pos.rules, team).line(pos.play)
-    if value > 0:
-      played = self.state.clone()
-      for a in line:
-        played.apply_action(a)
-      if not played.is_terminal():
-        raise RuntimeError("the claim's line did not end the deal")
-      returns = tuple(float(r) for r in played.returns())
-      self.throw = Throw("allmine", g, True, None, pos.play[6], returns)
-      return self.throw.text
-    taker = oracle.first_lost_trick(pos.rules, pos.play, line, team)
-    if taker is not None:
-      reason = {
-          "seat": taker[0],
-          "card": view.card_code(taker[1]),
-          "cardName": view.card_name(taker[1]),
-      }
-    else:
-      reason = {"text": "the deal would still be lost"}
-    self.throw = Throw(
-        "allmine", g, False, reason, pos.play[6], _resign_returns(pos, g)
-    )
-    return self.throw.text
-
-  def claim_holds(self, seat: int, budget: Optional[int] = None) -> bool:
-    """Whether an Allmine by table seat `seat` would hold (the bots' check).
-
-    False outside the card play, or when the solver needs more than
-    `budget` nodes.
-    """
-    if not self.can_claim(seat):
-      return False
-    pos = oracle.position(self.state)
-    solver = oracle.ClaimSolver(
-        pos.rules, oracle.team_of(self.game_seat(seat)), budget
-    )
-    try:
-      return solver.holds(pos.play)
-    except oracle.Budget:
-      return False
 
 
 def _resign_returns(pos: oracle.Position, g: int) -> tuple[float, ...]:

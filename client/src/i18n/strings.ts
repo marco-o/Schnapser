@@ -332,10 +332,15 @@ export const STRINGS = {
     de: 'Aufgeben geht jetzt nicht',
     it: 'Ora non puoi abbandonare',
   },
-  errClaimOnlyInPlay: {
-    en: 'you can only claim during the card play',
-    de: 'Ansprechen geht nur während des Ausspielens',
-    it: 'Puoi reclamare solo durante il gioco delle carte',
+  errShowOnlyInPlay: {
+    en: 'you can only show your cards during the card play',
+    de: 'Zeigen geht nur während des Ausspielens',
+    it: 'Puoi mostrare le carte solo durante il gioco delle carte',
+  },
+  errAlreadyShown: {
+    en: 'your cards are already shown',
+    de: 'Deine Karten sind schon aufgedeckt',
+    it: 'Le tue carte sono già scoperte',
   },
   errNoDealEnded: {
     en: 'no deal has just ended',
@@ -353,51 +358,30 @@ export const STRINGS = {
     it: 'Giocata sconosciuta (ammesse: {kinds})',
   },
 
-  // cardthrowup (table/throw_bar.tsx, docs/cardthrowup.md): Resign and
-  // Allmine ("my side takes every remaining trick").
+  // cardthrowup (table/throw_bar.tsx, docs/cardthrowup.md): Show (the hand
+  // open to the two opponents) and Resign.
   throwBar: {en: 'Throw your cards', de: 'Karten hinlegen', it: 'Scopri le carte'},
   throwResign: {en: 'Resign', de: 'Aufgeben', it: 'Abbandona'},
-  throwAllmine: {en: 'Allmine', de: 'Alle meine', it: 'Tutte mie'},
+  throwShow: {en: 'Show', de: 'Zeigen', it: 'Mostra'},
   throwResignConfirm: {
     en: 'Resign? Your side loses this deal.',
     de: 'Aufgeben? Deine Seite verliert dieses Spiel.',
     it: 'Abbandonare? La tua coppia perde questa mano.',
   },
-  throwAllmineConfirm: {
-    en: 'Claim every remaining trick? If the claim is wrong, it counts as resigning.',
-    de: 'Alle restlichen Stiche ansprechen? Stimmt es nicht, gilt es als Aufgabe.',
-    it: 'Reclamare tutte le prese rimaste? Se è sbagliato, vale come abbandono.',
+  throwShowConfirm: {
+    en: 'Show your cards to the opponents? They stay open to them for this deal.',
+    de: 'Den Gegnern die Karten zeigen? Sie bleiben für dieses Spiel offen.',
+    it: 'Mostrare le carte agli avversari? Restano scoperte per questa mano.',
   },
   throwYes: {en: 'Yes', de: 'Ja', it: 'Sì'},
   throwCancel: {en: 'Cancel', de: 'Abbrechen', it: 'Annulla'},
   throwResigns: {en: '{name} resigns', de: '{name} gibt auf', it: '{name} abbandona'},
-  throwClaims: {
-    en: '{name} claims all remaining tricks',
-    de: '{name} spricht alle restlichen Stiche an',
-    it: '{name} reclama tutte le prese rimaste',
-  },
-  throwChecked: {
-    en: 'Checked: every trick is theirs.',
-    de: 'Geprüft: alle Stiche gehören ihnen.',
-    it: 'Verificato: tutte le prese sono loro.',
-  },
-  throwRefusedBy: {
-    en: "Refused: {name}'s {card} takes a trick. It counts as resigning.",
-    de: 'Abgelehnt: {name} macht mit {card} einen Stich. Das gilt als Aufgabe.',
-    it: 'Respinto: {name} fa una presa con {card}. Vale come abbandono.',
-  },
-  throwRefused: {
-    en: 'Refused: the deal would still be lost. It counts as resigning.',
-    de: 'Abgelehnt: das Spiel wäre trotzdem verloren. Das gilt als Aufgabe.',
-    it: 'Respinto: la mano sarebbe comunque persa. Vale come abbandono.',
+  throwShows: {
+    en: '{name} shows their cards to the opponents',
+    de: '{name} zeigt den Gegnern die Karten',
+    it: '{name} mostra le carte agli avversari',
   },
   sheetResigned: {en: 'resigned', de: 'aufgegeben', it: 'abbandono'},
-  sheetAllmine: {en: 'allmine', de: 'alle meine', it: 'tutte mie'},
-  sheetAllmineRefused: {
-    en: 'allmine refused',
-    de: 'alle meine abgelehnt',
-    it: 'tutte mie respinto',
-  },
 } as const satisfies Record<string, Entry>;
 
 export type Key = keyof typeof STRINGS;

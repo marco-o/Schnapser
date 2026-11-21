@@ -285,6 +285,7 @@ def present(
     viewer: Optional[int],
     reveal: bool = False,
     throw: Optional[Json] = None,
+    shown: Sequence[int] = (),
 ) -> dict[str, Json]:
   """The table, holding only the hands `viewer` may see.
 
@@ -295,15 +296,20 @@ def present(
     throw: schnaps-web: the cardthrowup that ended the deal
       (deal.Throw.to_json), or None. A thrown deal is over: every hand
       shows, the phase is "terminal" and nobody is to move.
+    shown: schnaps-web: game seats that showed their hand to the opponents
+      (cardthrowup "Show"): those hands are open to a viewer of the other
+      partnership, never to the partner or a spectator.
 
   Returns:
-    The view (module doc), plus schnaps-web's "bids" (_bids) and "throw".
+    The view (module doc), plus schnaps-web's "bids" (_bids), "throw" and
+    "shown".
   """
   if throw is not None:
     out = present(state, viewer, reveal=True)
     out["phase"] = "terminal"
     out["toMove"] = None
     out["throw"] = throw
+    out["shown"] = sorted(shown)
     return out
   if state.get_game().get_type().short_name != GAME:
     raise ValueError("The schnaps view was given another game.")
@@ -311,9 +317,12 @@ def present(
   seats: list[Json] = []
   for seat in range(_NUM_SEATS):
     hand = parsed.hands[seat]
+    opened = (
+        seat in shown and viewer is not None and viewer % 2 != seat % 2
+    )
     cards: list[Json] = (
         [card_code(card) for card in hand]
-        if reveal or viewer == seat
+        if reveal or viewer == seat or opened
         else [None] * len(hand)
     )
     seats.append({"seat": seat, "team": seat % 2, "cards": cards})
@@ -340,18 +349,15 @@ def present(
       "tricks": list(parsed.tricks),
       "toMove": int(player) if 0 <= player < _NUM_SEATS else None,
       "throw": None,
+      "shown": sorted(shown),
   }
 
 
-def throw_text(kind: str, accepted: Optional[bool]) -> str:
-  """schnaps-web: a cardthrowup as the deal log names it.
-
-  "Resign", "Allmine" (checked) or "Allmine refused" (a wrong claim, which
-  counts as a resignation).
-  """
-  if kind == "resign":
-    return "Resign"
-  return "Allmine" if accepted else "Allmine refused"
+def throw_text(kind: str) -> str:
+  """schnaps-web: a cardthrowup as the deal log names it: "Resign"."""
+  if kind != "resign":
+    raise ValueError(f"unknown cardthrowup {kind!r}")
+  return "Resign"
 
 
 def describe_actions(

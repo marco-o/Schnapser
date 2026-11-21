@@ -253,7 +253,7 @@ body {
   text-align: left;
 }
 
-/* The felt and what floats over it on phones: the Resign/Allmine bar. */
+/* The felt and what floats over it on phones: the Show/Resign bar. */
 .site-felt {
   position: relative;
 }
@@ -283,7 +283,7 @@ body {
 /*
   A phone held sideways (landscape, at most 500 px tall): a slim header,
   then the felt filling the rest of the screen (schnaps.css scales it), with
-  the deal's result, errors and the Resign/Allmine bar floating over it. The
+  the deal's result, errors and the Show/Resign bar floating over it. The
   scoreboard, the seats and the score sheet follow below the felt.
 */
 @media (orientation: landscape) and (max-height: 500px) {
@@ -343,7 +343,7 @@ body {
     margin-left: 8px;
   }
 
-  /* The Resign/Allmine verdict, over the top of the felt. */
+  /* Who showed their cards or resigned, over the top of the felt. */
   .site-page--table .site-throw-notice {
     position: absolute;
     z-index: 5;
@@ -405,8 +405,8 @@ body {
   }
 }
 
-/* cardthrowup (table/throw_bar.tsx): the Resign/Allmine bar under the
-   hand (it is a .site-felt__actions bar) and the notice after a throw. */
+/* cardthrowup (table/throw_bar.tsx): the Show/Resign bar under the
+   hand (it is a .site-felt__actions bar) and the notices. */
 .site-throw {
   align-items: center;
 }
@@ -428,14 +428,6 @@ body {
   padding: 10px 14px;
   border: 2px solid var(--color-border-strong, var(--color-accent));
   border-radius: 8px;
-}
-
-.site-throw-notice [data-accepted='true'] {
-  color: var(--color-success-text, var(--color-success));
-}
-
-.site-throw-notice [data-accepted='false'] {
-  color: var(--color-error-text, var(--color-danger));
 }
 
 /* A phone in landscape: the throw bar floats in the felt's corner

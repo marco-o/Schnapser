@@ -63,9 +63,8 @@ class DealResult:
     points: the points it won.
     need_after: each pair's points still needed after the deal (before a
       new set resets them).
-    throw: the cardthrowup that ended the deal, or None: {"kind" ("resign"
-      or "allmine"), "seat" (table seat), "accepted" (an Allmine's verdict),
-      "text"} (docs/cardthrowup.md).
+    throw: the cardthrowup that ended the deal, or None: {"kind"
+      ("resign"), "seat" (table seat), "text"} (docs/cardthrowup.md).
   """
 
   number: int

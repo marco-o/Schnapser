@@ -12,19 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""The card play with every hand open: rules, an exact solver, claim checks.
+"""The card play with every hand open: rules, an exact solver, positions.
 
 Copied for schnaps-web from open_spiel/python/scale/envs/schnaps_oracle.py
 (the card-play part: Rules, initial_play, play_legal, play_apply and
 PlaySolver, unchanged). The oracle's Model, bidding and Oracle are left out.
 schnaps-web adds:
 
-  * `ClaimSolver`: checks an "Allmine" claim (docs/cardthrowup.md): can the
-    claimant's partnership force every remaining trick, against any defence,
-    with all hands known? It is PlaySolver's alpha-beta over a changed
-    value: a trick won by the other side is LOST (worse than any score), so
-    the defence refutes a claim whenever it can, and on a line where the
-    claimant does take every trick the value is the deal's real score.
+  * `finish_normal`: a Normal game's score when a side resigns now.
   * `position(state)`: a pyspiel play state as the solver's play tuple
     (replayed from the history, checked against the state's text).
 
@@ -36,7 +31,6 @@ from __future__ import annotations
 
 import dataclasses
 import re
-from typing import Optional
 
 N_PLAYER = 4
 N_SUIT = 4
@@ -300,139 +294,11 @@ class PlaySolver:
     return best
 
 
-# ------------------------- schnaps-web: Allmine ----------------------------
-
-#: A trick won by the side that did not claim: below every real score.
-LOST = -1000
+# ------------------------- schnaps-web: Resign -----------------------------
 
 #: A Normal game's value for team 0 when team `winner` ends it now (1, 2 or
 #: 3, + for team 0): the scoring of a Normal-game resignation.
 finish_normal = _finish_normal
-
-
-class Budget(Exception):
-  """A ClaimSolver search went over its node budget."""
-
-
-class ClaimSolver:
-  """Checks an Allmine claim by `team` (module doc).
-
-  Values are for the claiming team (+ when it wins), LOST when the other
-  side takes a trick. The claimant's side maximises, the other side
-  minimises (and so refutes the claim whenever it can).
-  """
-
-  def __init__(self, rules: Rules, team: int, budget: Optional[int] = None):
-    self.rules = rules
-    self.team = team
-    self.budget = budget
-    self.table: dict[tuple, tuple[int, int]] = {}
-    self.nodes = 0
-
-  def value(self, p: tuple) -> int:
-    """The claim's exact value: LOST, or the score when it holds."""
-    return self._search(p, LOST, INF)
-
-  def holds(self, p: tuple) -> bool:
-    """Whether the claim holds and wins the deal for the claimant.
-
-    A null-window search: cheaper than `value`. Raises Budget when the
-    solver's node budget runs out.
-    """
-    return self._search(p, 0, 1) >= 1
-
-  def child(self, p: tuple, a: int) -> tuple[tuple, Optional[int]]:
-    """(next play state, its final value for the claimant or None)."""
-    q, v = play_apply(self.rules, p, a)
-    if len(p[1]) == N_PLAYER - 1 and team_of(q[2]) != self.team:
-      return q, LOST  # this action finished a trick the other side won
-    if v is None:
-      return q, None
-    return q, v if self.team == 0 else -v
-
-  def action_values(self, p: tuple) -> dict[int, int]:
-    """Each legal action's exact claim value."""
-    out = {}
-    for a in play_legal(self.rules, p):
-      q, v = self.child(p, a)
-      out[a] = v if v is not None else self.value(q)
-    return out
-
-  def line(self, p: tuple) -> tuple[list[int], int]:
-    """A line of best play for both sides, to the end: (actions, value).
-
-    The claimant's side picks a best action, the other side a worst one
-    for the claimant (the lowest action id among equals). On a refuted
-    claim the line runs to the trick the other side takes and stops.
-    """
-    actions = []
-    while True:
-      values = self.action_values(p)
-      mine = team_of(to_move(p)) == self.team
-      best = (max if mine else min)(values.values())
-      a = min(x for x, v in values.items() if v == best)
-      actions.append(a)
-      q, v = self.child(p, a)
-      if v is not None:
-        return actions, v
-      p = q
-
-  def _search(self, p, alpha, beta):
-    self.nodes += 1
-    if self.budget is not None and self.nodes > self.budget:
-      raise Budget()
-    lo, hi = self.table.get(p, (-INF, INF))
-    if lo >= beta:
-      return lo
-    if hi <= alpha:
-      return hi
-    if lo == hi:
-      return lo
-    alpha, beta = max(alpha, lo), min(beta, hi)
-    a0, b0 = alpha, beta
-    maximise = team_of(to_move(p)) == self.team
-    best = -INF if maximise else INF
-    for a in play_legal(self.rules, p):
-      q, v = self.child(p, a)
-      if v is None:
-        v = self._search(q, alpha, beta)
-      if maximise:
-        if v > best:
-          best = v
-          alpha = max(alpha, v)
-      elif v < best:
-        best = v
-        beta = min(beta, v)
-      if alpha >= beta:
-        break
-    if best <= a0:
-      self.table[p] = (lo, min(hi, best))
-    elif best >= b0:
-      self.table[p] = (max(lo, best), hi)
-    else:
-      self.table[p] = (best, best)
-    return best
-
-
-def first_lost_trick(
-    rules: Rules, p: tuple, actions: list[int], team: int
-) -> Optional[tuple[int, int]]:
-  """Plays `actions` from `p`: (seat, card) taking the first trick that
-  `team`'s opponents win, or None if they win none."""
-  for a in actions:
-    trick, leader = p[1], p[2]
-    q, _ = play_apply(rules, p, a)
-    if len(trick) == N_PLAYER - 1:
-      cards = trick + (_card_of(a),)
-      win = 0
-      for i in range(1, N_PLAYER):
-        if _beats(rules, cards[i], cards[win]):
-          win = i
-      seat = (leader + win) % N_PLAYER
-      if team_of(seat) != team:
-        return seat, cards[win]
-    p = q
-  return None
 
 
 def _card_of(action: int) -> int:
