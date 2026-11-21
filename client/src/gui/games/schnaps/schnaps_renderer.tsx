@@ -20,11 +20,22 @@
 // (gui/src/games/schnaps/schnaps_renderer.tsx). Changes: it takes its props
 // directly instead of the GUI's renderer registry, draws the viewer's seat
 // at the bottom (spectators: `bottomSeat`), and names seats by
-// `seatLabels` (nicknames) instead of "Player N".
+// `seatLabels` (nicknames) instead of "Player N", and shows its text in the
+// table's language (i18n/strings.ts; the language comes from LangContext).
 
 import type {JSX} from 'react';
 
-import type {Suit} from '../../cards/card.ts';
+import {useLang} from '../../../i18n/lang.tsx';
+import {
+  actionText,
+  bidText,
+  contractName,
+  type Key,
+  type Lang,
+  type Params,
+  t,
+} from '../../../i18n/strings.ts';
+import {parseCard, type Suit} from '../../cards/card.ts';
 import {CardFace} from '../../cards/card_face.tsx';
 import {cardActions} from '../../cards/card_hints.ts';
 import {Hand} from '../../cards/hand.tsx';
@@ -38,12 +49,12 @@ import {
 } from '../../renderers/struct_reader.ts';
 import type {Frame, Presentation} from '../../table_types.ts';
 import {
-  SCHNAPS_SKIN,
   type SchnapsDeclaration,
   type SchnapsPlay,
   type SchnapsView,
   readSchnapsView,
-  suitName,
+  schnapsSkin,
+  suitName as suitNameIn,
 } from './schnaps_view.ts';
 
 import './schnaps.css';
@@ -71,33 +82,45 @@ export interface SchnapsTableProps {
   readonly bottomSeat?: number;
 }
 
-// The seat names of the table being drawn (set at the top of each render).
+// The seat names and the language of the table being drawn (set at the top
+// of each render).
 let labels: readonly string[] = [];
+let lang: Lang = 'it';
+
+/** t() in the language of the table being drawn. */
+function tr(key: Key, params?: Params): string {
+  return t(lang, key, params);
+}
+
+function suitName(suit: Suit): string {
+  return suitNameIn(lang, suit);
+}
 
 function seatName(seat: number): string {
-  return labels[seat] ?? `Player ${String(seat)}`;
+  return labels[seat] ?? tr('playerN', {n: seat});
 }
 
 function teamName(team: number): string {
-  return `${seatName(team)} + ${seatName(team + 2)}`;
+  return tr('teamOf', {a: seatName(team), b: seatName(team + 2)});
 }
 
 function statusText(view: SchnapsView, frame: Frame): string {
   const mover = view.toMove === null ? '' : seatName(view.toMove);
   switch (view.phase) {
     case 'deal':
-      return 'Dealing…';
+      return tr('dealing');
     case 'trump':
-      return `${mover} chooses trump from the first three cards`;
+      return tr('choosesTrump', {name: mover});
     case 'bidding':
-      return `Bidding: ${mover} calls, flecks or passes`;
+      return tr('bidding', {name: mover});
     case 'play':
-      return `${mover} to play`;
+      return tr('toPlay', {name: mover});
     case 'terminal': {
       const returns = frame.returns ?? [];
       const value = returns[0] ?? 0;
       const winner = value >= 0 ? 0 : 1;
-      return `${teamName(winner)} win ${String(Math.abs(value))} points`;
+      const n = Math.abs(value);
+      return tr(n === 1 ? 'winPoint' : 'winPoints', {pair: teamName(winner), n});
     }
     default: {
       const unreachable: never = view.phase;
@@ -110,9 +133,9 @@ function statusText(view: SchnapsView, frame: Frame): string {
 function InfoBox({view}: {readonly view: SchnapsView}): JSX.Element {
   const {trump, contract} = view;
   return (
-    <dl className="schnaps-info" aria-label="Deal">
+    <dl className="schnaps-info" aria-label={tr('dealInfo')}>
       <div className="schnaps-info__item">
-        <dt>Trump</dt>
+        <dt>{tr('trump')}</dt>
         <dd>
           {trump === null ? (
             '—'
@@ -124,11 +147,11 @@ function InfoBox({view}: {readonly view: SchnapsView}): JSX.Element {
         </dd>
       </div>
       <div className="schnaps-info__item">
-        <dt>Contract</dt>
+        <dt>{tr('contract')}</dt>
         <dd>
           {contract === null
             ? '—'
-            : `${contract.name} (${seatName(contract.declarer)})`}
+            : `${contractName(lang, contract.name)} (${seatName(contract.declarer)})`}
           {contract !== null && contract.flecks > 0
             ? ` ×${String(2 ** contract.flecks)}`
             : ''}
@@ -138,7 +161,7 @@ function InfoBox({view}: {readonly view: SchnapsView}): JSX.Element {
         <div className="schnaps-info__item" key={team}>
           <dt>{teamName(team)}</dt>
           <dd>
-            {`${String(view.score[team] ?? 0)} pts · ${String(view.tricks[team] ?? 0)} tricks`}
+            {tr('ptsTricks', {pts: view.score[team] ?? 0, tricks: view.tricks[team] ?? 0})}
           </dd>
         </div>
       ))}
@@ -188,7 +211,7 @@ function TrickArea({
   const announced = view.declarations.find(d => d.trick === shownTrick);
   const plays: readonly SchnapsPlay[] = last === null ? view.trick : last.cards;
   const caption =
-    last === null ? 'Trick' : `Last trick: ${seatName(last.winner)} won`;
+    last === null ? tr('trick') : tr('lastTrickWon', {name: seatName(last.winner)});
   return (
     <section
       className="schnaps-trick"
@@ -201,7 +224,7 @@ function TrickArea({
           data-place={placeOf(play.seat, bottom)}
           key={play.seat}
         >
-          <CardFace code={play.card} skin={SCHNAPS_SKIN} />
+          <CardFace code={play.card} skin={schnapsSkin(lang)} />
         </div>
       ))}
       {announced !== undefined && (
@@ -236,7 +259,7 @@ function SeatArea({
   const trump = seat === 0 ? view.trump : null;
   const bids = view.bids
     .filter(b => b.seat === seat)
-    .map(b => b.bid)
+    .map(b => bidText(lang, b.bid))
     .join(', ');
   const said = view.declarations
     .filter(d => d.seat === seat)
@@ -244,7 +267,7 @@ function SeatArea({
     .join(', ');
   const label = [
     seatName(seat),
-    trump === null ? '' : `trump ${suitName(trump)}`,
+    trump === null ? '' : tr('trumpSuit', {suit: suitName(trump)}),
     bids,
     said,
   ]
@@ -275,7 +298,7 @@ function SeatArea({
         cards={entry?.cards ?? []}
         playable={playable}
         play={play}
-        skin={SCHNAPS_SKIN}
+        skin={schnapsSkin(lang)}
         fanned={seat !== bottom}
       />
     </div>
@@ -289,24 +312,34 @@ const CHANCE_SHOWN = 0.2;
 function MoveButtons({
   presentation,
   play,
-}: Pick<SchnapsTableProps, 'presentation' | 'play'>): JSX.Element | null {
+  trump: dealTrump,
+}: Pick<SchnapsTableProps, 'presentation' | 'play'> & {
+  readonly trump: Suit | null;
+}): JSX.Element | null {
   const buttons = readHints(presentation, (hint, path) => {
     if (hint === null) return null;
     const fields = record(hint, path);
     // schnaps-web: a call may carry its chance of success ("chance").
     const chance = optionalField(hint, path, 'chance', number, null);
+    // schnaps-web: the text is built in the table's language from the
+    // action id (i18n/strings.ts actionText); the server's is the fallback.
     if ('button' in fields) {
-      return {text: field(hint, path, 'button', string), chance};
+      return {text: field(hint, path, 'button', string), declared: null, chance};
     }
     if ('declare' in fields) {
-      return {text: field(hint, path, 'label', string), chance};
+      return {
+        text: field(hint, path, 'label', string),
+        declared: parseCard(field(hint, path, 'declare', string)),
+        chance,
+      };
     }
     return null;
   });
   if (buttons.length === 0) return null;
   return (
-    <div className="schnaps-moves" role="group" aria-label="Moves">
-      {buttons.map(({action, hint: {text: name, chance}}) => {
+    <div className="schnaps-moves" role="group" aria-label={tr('moves')}>
+      {buttons.map(({action, hint: {text: serverText, declared, chance}}) => {
+        const name = actionText(lang, action, serverText, declared, dealTrump);
         // schnaps-web: a call's chance of success shows when above 20%.
         const text =
           chance !== null && chance > CHANCE_SHOWN
@@ -343,6 +376,7 @@ export function SchnapsRenderer({
   bottomSeat = 0,
 }: SchnapsTableProps): JSX.Element {
   labels = seatLabels;
+  lang = useLang();
   const view = readSchnapsView(presentation.view);
   const bottom = frame.viewer.seat ?? bottomSeat;
   const playable = cardActions(presentation);
@@ -365,7 +399,7 @@ export function SchnapsRenderer({
         ))}
         <TrickArea view={view} bottom={bottom} />
       </div>
-      <MoveButtons presentation={presentation} play={play} />
+      <MoveButtons presentation={presentation} play={play} trump={view.trump} />
     </div>
   );
 }

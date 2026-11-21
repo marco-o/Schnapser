@@ -281,7 +281,10 @@ def _bids(state: pyspiel.State) -> list[Json]:
 
 
 def present(
-    state: pyspiel.State, viewer: Optional[int], reveal: bool = False
+    state: pyspiel.State,
+    viewer: Optional[int],
+    reveal: bool = False,
+    throw: Optional[Json] = None,
 ) -> dict[str, Json]:
   """The table, holding only the hands `viewer` may see.
 
@@ -289,10 +292,19 @@ def present(
     state: the deal.
     viewer: the viewing game seat, or None for a spectator (no hand).
     reveal: schnaps-web: show every hand (the all-cards watch port).
+    throw: schnaps-web: the cardthrowup that ended the deal
+      (deal.Throw.to_json), or None. A thrown deal is over: every hand
+      shows, the phase is "terminal" and nobody is to move.
 
   Returns:
-    The view (module doc), plus schnaps-web's "bids" (_bids).
+    The view (module doc), plus schnaps-web's "bids" (_bids) and "throw".
   """
+  if throw is not None:
+    out = present(state, viewer, reveal=True)
+    out["phase"] = "terminal"
+    out["toMove"] = None
+    out["throw"] = throw
+    return out
   if state.get_game().get_type().short_name != GAME:
     raise ValueError("The schnaps view was given another game.")
   parsed = _Parsed(str(state))
@@ -327,7 +339,19 @@ def present(
       "score": list(parsed.score),
       "tricks": list(parsed.tricks),
       "toMove": int(player) if 0 <= player < _NUM_SEATS else None,
+      "throw": None,
   }
+
+
+def throw_text(kind: str, accepted: Optional[bool]) -> str:
+  """schnaps-web: a cardthrowup as the deal log names it.
+
+  "Resign", "Allmine" (checked) or "Allmine refused" (a wrong claim, which
+  counts as a resignation).
+  """
+  if kind == "resign":
+    return "Resign"
+  return "Allmine" if accepted else "Allmine refused"
 
 
 def describe_actions(

@@ -13,6 +13,10 @@ creator may put a bot into any seat but a human's, take a bot out (its seat
 becomes empty) and start the match once all four seats are filled. If the
 seat to move is empty or its player is offline, play simply waits.
 
+During the card play a seated player may also throw their cards
+(docs/cardthrowup.md): Resign or Allmine (`throw`), which ends the deal;
+bots claim Allmine when the solver proves it, and never resign.
+
 Privacy: a connection's view is chosen by its token (the seat it holds);
 without one it is a spectator's. Nobody is ever sent another seat's hand.
 
@@ -35,6 +39,10 @@ from schnaps_web import match as match_lib
 
 NAME_MAX = 20
 
+# The languages a table can show (the client translates; i18n/strings.ts).
+LANGS = ("it", "de", "en")
+DEFAULT_LANG = "it"
+
 #: First names a seated bot gets, one not yet used at its table.
 BOT_NAMES = (
     "Harry", "Hermione", "Ron", "Ginny", "Neville", "Luna", "Fred", "George",
@@ -48,12 +56,29 @@ BOT_NAMES = (
 )
 
 
+#: The cardthrowups a seat may make (Table.throw).
+THROWS = ("resign", "allmine")
+
+#: The most solver nodes a bot's Allmine check may take (a few thousand at
+#: most in practice; over the budget the bot just plays on).
+BOT_CLAIM_BUDGET = 50_000
+
+
 class TableError(ValueError):
   """A request the table refuses (bad seat, not allowed, wrong phase)."""
 
 
 class Forbidden(TableError):
   """The token may not do this."""
+
+
+def clean_lang(lang: Any) -> str:
+  """One of LANGS; None (not given) is DEFAULT_LANG."""
+  if lang is None:
+    return DEFAULT_LANG
+  if lang not in LANGS:
+    raise TableError(f"unknown language {lang!r}")
+  return lang
 
 
 def clean_name(name: Any, what: str = "name") -> str:
@@ -104,6 +129,7 @@ class Table:
   Attributes:
     id: the table id.
     name: its name.
+    lang: the language its pages show ("it", "de" or "en").
     phase: the life-cycle phase.
     seats: the four seats.
     match: the match, None before the first start.
@@ -119,9 +145,11 @@ class Table:
       settings: config_lib.Settings,
       game: pyspiel.Game,
       rng: Optional[random.Random] = None,
+      lang: Optional[str] = None,
   ):
     self.id = table_id
     self.name = clean_name(name, "table name")
+    self.lang = clean_lang(lang)
     self.phase = "open"
     self.seats = [Seat() for _ in range(match_lib.NUM_SEATS)]
     self.match: Optional[match_lib.Match] = None
@@ -244,10 +272,42 @@ class Table:
       raise TableError(str(e)) from e
     self._changed()
 
+  def throw(self, token: Optional[str], kind: Any) -> None:
+    """The token's seat throws its cards: "resign" or "allmine".
+
+    The same checks as act(), but not only on the seat's turn
+    (docs/cardthrowup.md; deal.Deal.resign and claim). The deal is then
+    over; the driver records it.
+    """
+    seat = self.seat_of(token)
+    if seat is None:
+      raise Forbidden("you have no seat at this table")
+    if self.phase != "playing":
+      raise TableError("no deal is in progress")
+    if kind not in THROWS:
+      raise TableError(f"a throw is one of {', '.join(THROWS)}")
+    try:
+      if kind == "resign":
+        self.deal.resign(seat)
+      else:
+        self.deal.claim(seat)
+    except deal_lib.DealError as e:
+      raise TableError(str(e)) from e
+    self._changed()
+
   def _finish_deal(self) -> None:
     res = self.deal.result()
+    throw = None
+    if res["throw"] is not None:
+      t = res["throw"]
+      throw = {
+          "kind": t["kind"],
+          "seat": self.deal.table_seat(t["seat"]),
+          "accepted": t["accepted"],
+          "text": t["text"],
+      }
     out = self.match.record(
-        res["returns"], res["contract"], res["declarer"], res["flecks"]
+        res["returns"], res["contract"], res["declarer"], res["flecks"], throw
     )
     self.last_result = {
         "deal": out["deal"].to_json(),
@@ -282,13 +342,23 @@ class Table:
       s = self.seats[seat]
       if s.kind != "bot":
         continue
+      # A bot claims every remaining trick when the solver proves it
+      # (docs/cardthrowup.md); it never resigns.
+      if deal.claim_holds(seat, BOT_CLAIM_BUDGET):
+        deal.claim(seat)
+        self._changed()
+        continue
       bot = self._bots[s.bot]
       moves = len(deal.state.history())
       action = await asyncio.to_thread(
           bot.choose, deal.state.clone(), deal.game_seat(seat), self.set_need()
       )
-      if self.deal is not deal or len(deal.state.history()) != moves:
-        continue  # the table moved on meanwhile
+      if (
+          self.deal is not deal
+          or deal.is_over
+          or len(deal.state.history()) != moves
+      ):
+        continue  # the table moved on meanwhile (a move, a throw)
       if self.seats[seat].kind != "bot":
         continue
       deal.apply(seat, action)
@@ -329,6 +399,7 @@ class Table:
     return {
         "id": self.id,
         "name": self.name,
+        "lang": self.lang,
         "phase": self.phase,
         "seats": [self._seat_json(i, None) for i in range(4)],
         "need": list(self.match.need) if self.match else None,
@@ -359,6 +430,7 @@ class Table:
         "type": "table",
         "id": self.id,
         "name": self.name,
+        "lang": self.lang,
         "phase": self.phase,
         "you": seat,
         "isCreator": self.is_creator(token),

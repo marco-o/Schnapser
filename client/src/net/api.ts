@@ -2,6 +2,7 @@
 // tokens and nickname.
 
 import type {Frame, Presentation} from '../gui/table_types.ts';
+import type {Lang} from '../i18n/strings.ts';
 
 export interface SeatInfo {
   readonly kind: 'empty' | 'human' | 'bot';
@@ -16,6 +17,8 @@ export interface SeatInfo {
 export interface TableSummary {
   readonly id: string;
   readonly name: string;
+  /** The language the table shows, chosen when it was started. */
+  readonly lang: Lang;
   readonly phase: Phase;
   readonly seats: readonly SeatInfo[];
   readonly need: readonly number[] | null;
@@ -35,6 +38,35 @@ export interface DealResult {
   readonly winner: number;
   readonly points: number;
   readonly need_after: readonly number[];
+  /** The cardthrowup that ended the deal (docs/cardthrowup.md), or null. */
+  readonly throw?: DealThrow | null;
+}
+
+/** A recorded throw: who (table seat), which, and an Allmine's verdict. */
+export interface DealThrow {
+  readonly kind: ThrowKind;
+  readonly seat: number;
+  readonly accepted: boolean | null;
+  readonly text: string;
+}
+
+export type ThrowKind = 'resign' | 'allmine';
+
+/** The throw in a frame's view (game seats; deal.Throw.to_json). */
+export interface FrameThrow {
+  readonly kind: ThrowKind;
+  /** The thrower's game seat. */
+  readonly seat: number;
+  readonly accepted: boolean | null;
+  /** Why an Allmine was refused: the card that takes a trick, or a text. */
+  readonly reason: {
+    readonly seat?: number;
+    readonly card?: string;
+    readonly cardName?: string;
+    readonly text?: string;
+  } | null;
+  readonly trick: number;
+  readonly text: string;
 }
 
 export interface MatchInfo {
@@ -50,6 +82,8 @@ export interface MatchInfo {
 export interface TableFrame extends Frame {
   readonly seatMap: readonly number[];
   readonly presentation: Presentation;
+  /** The throws offered to the viewer now (none to spectators). */
+  readonly throws?: {readonly resign: boolean; readonly allmine: boolean};
 }
 
 /** What the table's WebSocket pushes (table.snapshot on the server). */
@@ -57,6 +91,8 @@ export interface TableSnapshot {
   readonly type: 'table';
   readonly id: string;
   readonly name: string;
+  /** The language the table shows, chosen when it was started. */
+  readonly lang: Lang;
   readonly phase: Phase;
   readonly you: number | null;
   readonly isCreator: boolean;
@@ -138,11 +174,12 @@ export const api = {
   /** Which app serves the page: the watch port is read-only, all cards shown. */
   site: () => call<{watch: boolean}>('GET', '/api/site'),
   tables: () => call<TableSummary[]>('GET', '/api/tables'),
-  create: (name: string, player: string, seat: number) =>
+  create: (name: string, player: string, seat: number, lang: Lang) =>
     call<{id: string; token: string}>('POST', '/api/tables', {
       name,
       player,
       seat,
+      lang,
     }),
   sit: (id: string, seat: number, player: string) =>
     call<{token: string}>('POST', `/api/tables/${id}/seats/${seat}`, {player}),
@@ -154,6 +191,9 @@ export const api = {
     call('POST', `/api/tables/${id}/start`, {}, token),
   act: (id: string, action: number, token: string | null) =>
     call('POST', `/api/tables/${id}/actions`, {action}, token),
+  /** Resign, or claim every remaining trick (docs/cardthrowup.md). */
+  throwCards: (id: string, kind: ThrowKind, token: string | null) =>
+    call('POST', `/api/tables/${id}/throw`, {kind}, token),
   close: (id: string, token: string | null) =>
     call('DELETE', `/api/tables/${id}`, undefined, token),
 };

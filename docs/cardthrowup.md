@@ -1,6 +1,8 @@
-# cardthrowup: throwing your cards on the table (proposal, 2026-11-21)
+# cardthrowup: throwing your cards on the table (2026-11-21)
 
-Status: discussion only. Nothing is built.
+Status: **built** (2026-11-21). The user's answers to §6 and the as-built
+notes are at the end (§7); where they differ from the proposal below, §6
+and §7 win.
 
 In human games a player sometimes lays their cards open because the outcome
 is clear to them. It has two meanings:
@@ -143,3 +145,110 @@ The watch app (port 8001) shows the same events.
 5. Should bots claim? Should they ever resign?
 6. Is the Allmine verdict shown with the reason (the card that would take a
    trick), or just "refused"?
+
+### Answers (the user, 2026-11-21)
+
+1. **Normal-game resign:** "as if they reached 66 now": the other pair
+   wins 3 if the resigners have no trick, 2 if they are under 33 points,
+   else 1 (times 2^flecks). Contracts score their stake as in §1 (a failed
+   Schnapser 6, Lomt 9, …, times 2^flecks).
+2. **One player decides** for the pair; no partner confirmation.
+3. **Resign is offered** during the whole play in a contract (either
+   side), and from the third trick in a Normal game.
+4. **A wrong Allmine is always strict:** it counts as a resignation by the
+   claimant. No table option.
+5. **Bots claim** Allmine when the solver proves it. Bots never resign.
+6. **The verdict shows the reason** (the card that would take a trick).
+
+## 7. As built (2026-11-21)
+
+### Rules as implemented
+
+| Throw | When offered | Scored |
+|---|---|---|
+| Resign, contract | the whole card play, any seat, also out of turn | declaring side resigns: failed, stake × 2^flecks to the defenders; a defender resigns: made |
+| Resign, Normal game | from the third trick (2 tricks done) | the other pair as if it had just reached 66: 3 if the resigners have no trick, 2 if under 33 points, else 1; × 2^flecks |
+| Allmine, holds | the whole card play (from before the first lead), any seat, also out of turn | the solver's line is played out on a copy of the pyspiel state; the engine's returns score it (66, 20/40, Schneider/Schwarz, flecks) |
+| Allmine, wrong | same | strict: counts as a resignation by the claimant, whatever the trick (so also before trick 3 in a Normal game) |
+
+- **What "holds" means:** the claimant's partnership can force every
+  remaining trick against any defence with all hands open, and that line
+  wins the deal for it. A trick won by the *partner* in a Lomt/Bauern (only
+  the declarer may take tricks there) or a Schnapser that ends at trick 3
+  under 66 is not a win, so such a claim is refused too.
+- A defender's claim in a contract is checked the same way: their first
+  trick ends the deal, so it holds when they can force taking the next
+  trick before the declarer's side makes it.
+- A throw ends the deal at once. The state stays as it was at the throw,
+  so every hand shows face up to everyone (all four seats, spectators and
+  the watch port) for the usual deal pause.
+- **Bots:** before each bot move in the card play the table asks the
+  solver whether the bot's pair can claim (a null-window search, capped at
+  `table.BOT_CLAIM_BUDGET` = 50,000 nodes); if so the bot claims. Bots never
+  resign, so a bot's throw is always an accepted Allmine.
+- **Confirm step:** Resign *and* Allmine ask to confirm (Allmine too,
+  because a wrong claim counts as resigning, and a stray tap would cost
+  the deal).
+
+### Where it lives
+
+- `server/schnaps_web/game/oracle.py`: the card-play part of open_spiel's
+  `envs/schnaps_oracle.py` copied unchanged (Rules, play_legal, play_apply,
+  PlaySolver), plus:
+  - `ClaimSolver`: PlaySolver's alpha-beta with a changed value (a trick
+    won by the other side is `LOST` = -1000, below every score), so the
+    defence refutes a claim whenever it can; `value`, `holds` (null
+    window, optional node budget), `line` (best play for both sides,
+    lowest action id among equals).
+  - `first_lost_trick`: the card and seat that take the first trick on a
+    refuting line (the reason shown).
+  - `position(state)`: the pyspiel state as a play tuple, replayed from
+    the history and checked against the state's text (hands, score,
+    tricks, player to move).
+- `deal.py`: `Throw` (kind, game seat, accepted, reason, trick, returns),
+  `Deal.resign / claim / claim_holds / can_resign / can_claim / in_play`;
+  `is_over`, `to_move`, `frame` and `result` honour the throw. The frame
+  gains `"throws": {"resign", "allmine"}` (what the viewer is offered;
+  all false for spectators and outside the play).
+- `game/view.py`: `present(..., throw=)` puts the throw into the view as
+  `"throw"` (and shows every hand, phase "terminal", nobody to move);
+  `throw_text` gives the log name ("Resign", "Allmine", "Allmine
+  refused").
+- `table.py`: `Table.throw(token, kind)` (same seat/phase checks as
+  `act`), bot claims in `_drive` (which also skips a bot move whose deal
+  was thrown while the bot thought), the throw recorded through
+  `match.record` into `DealResult.throw` ({kind, table seat, accepted,
+  text}).
+- `app.py`: `POST /api/tables/{id}/throw {kind: "resign" | "allmine"}`.
+- Client: `table/throw_bar.tsx` (`ThrowBar`: the bar under the hand, a
+  `.site-felt__actions` bar, so on phones it floats over the felt;
+  `ThrowNotice`: "Anna claims all remaining tricks · Checked…" or
+  "Refused: Ron's Pik As takes a trick. It counts as resigning.";
+  `throwMark` for the score sheet, e.g. "Normal · allmine (Vernon)"),
+  `net/api.ts` (`throwCards`, the types), strings in `i18n/strings.ts`
+  (en/de/it, incl. the three new server errors), CSS under `.site-throw`
+  in `site.css`.
+
+### Cost
+
+Timed on 2,592 positions of random deals (every trick, mid-trick too):
+the slowest exact claim check took 33 ms (4,884 nodes, a Normal game
+before the first lead); a Lomt from the start took 16 ms. So claims are
+solved inline, without a worker thread.
+
+### Tests
+
+`server/tests/test_cardthrowup.py` (15 tests): resign scoring in each
+contract (both sides, with and without flecks) and in a Normal game; when
+Resign/Allmine are offered (trick 0/1/2/3, contracts, bidding,
+spectators); Allmine accepted (score = the solver's value), refused
+(counts as resign, reason card from an opponent's hand), a Lomt claimed
+before the first lead by the declarer and by a defender; the claim solver
+against a brute-force search; the bots' node budget; frames before (no
+leak) and after a throw (every hand, no moves); over the API, a throw
+recorded and the table playing on; a full bot match where bots claim and
+never resign.
+
+Checked end to end in the browser (2026-11-21): a bot partner's accepted
+claim after the first card, Resign of a Lomt from the first card, and a
+refused Normal-game Allmine before the first lead with its reason.

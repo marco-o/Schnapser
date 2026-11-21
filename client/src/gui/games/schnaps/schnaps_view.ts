@@ -16,8 +16,15 @@
 // read with the checked struct readers, and the skin its cards are drawn
 // with: Unter, Ober, Koenig, Zehn and As travel as J, Q, K, T and A.
 
-import type {Rank, Suit} from '../../cards/card.ts';
+import type {Suit} from '../../cards/card.ts';
 import type {Skin} from '../../cards/skins.ts';
+import {
+  cardName,
+  type Lang,
+  rankIndex,
+  suitName as translatedSuit,
+  t,
+} from '../../../i18n/strings.ts';
 import {
   array,
   field,
@@ -194,34 +201,11 @@ export function readSchnapsView(view: unknown): SchnapsView {
   };
 }
 
-const SUIT_NAMES: Record<Suit, string> = {
-  h: 'Herz',
-  d: 'Caro',
-  s: 'Pik',
-  c: 'Kreuz',
-};
-
 const GLYPHS: Record<Suit, string> = {h: '♥', d: '♦', s: '♠', c: '♣'};
 
-const RANK_LABELS: Partial<Record<Rank, string>> = {
-  J: 'U',
-  Q: 'O',
-  K: 'K',
-  T: '10',
-  A: 'A',
-};
-
-const RANK_NAMES: Partial<Record<Rank, string>> = {
-  J: 'Unter',
-  Q: 'Ober',
-  K: 'König',
-  T: 'Zehn',
-  A: 'As',
-};
-
-/** The German name of a suit: "Herz". */
-export function suitName(suit: Suit): string {
-  return SUIT_NAMES[suit];
+/** A suit's name in `lang`: "Herz" (schnaps-web: i18n/strings.ts). */
+export function suitName(lang: Lang, suit: Suit): string {
+  return translatedSuit(lang, suit);
 }
 
 /** The glyph of a suit: "♥". */
@@ -229,17 +213,29 @@ export function suitGlyph(suit: Suit): string {
   return GLYPHS[suit];
 }
 
-/** The schnaps skin: U, O, K, 10 and A, with German card names. */
-export const SCHNAPS_SKIN: Skin = schnapsSkin();
+const SKINS = new Map<Lang, Skin>();
 
-function schnapsSkin(): Skin {
+/**
+ * The schnaps skin in `lang`: U, O, K, 10 and A (Italian N, C, R, 10, A),
+ * with the card names of that language (schnaps-web: i18n/strings.ts).
+ */
+export function schnapsSkin(lang: Lang): Skin {
+  let skin = SKINS.get(lang);
+  if (skin === undefined) {
+    skin = makeSchnapsSkin(lang);
+    SKINS.set(lang, skin);
+  }
+  return skin;
+}
+
+function makeSchnapsSkin(lang: Lang): Skin {
   return {
-    name: 'schnaps',
-    rankLabel: rank => RANK_LABELS[rank] ?? rank,
+    name: `schnaps-${lang}`,
+    rankLabel: rank => rankIndex(lang, rank),
     suitGlyph: suit => GLYPHS[suit],
     suitTone: suit => (suit === 'h' || suit === 'd' ? 'red' : 'black'),
-    cardName: ({rank, suit}) =>
-      `${SUIT_NAMES[suit]} ${RANK_NAMES[rank] ?? rank}`,
+    cardName: ({rank, suit}) => cardName(lang, rank, suit),
+    faceDownName: t(lang, 'faceDownCard'),
     // schnaps-web: the photographed deck (client/public/cards, cut from a
     // photo by scripts/cut_cards.py), served at /cards/<rank><suit>.webp.
     faceImage: ({rank, suit}) => `/cards/${rank}${suit}.webp`,

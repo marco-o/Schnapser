@@ -10,6 +10,7 @@ REST (JSON; a seat token goes in the X-Seat-Token header):
   DELETE /api/tables/{id}/seats/{n}         empty a seat (own, or a bot)
   POST   /api/tables/{id}/start             the creator starts a match
   POST   /api/tables/{id}/actions           {action}: play a move
+  POST   /api/tables/{id}/throw             {kind}: "resign" or "allmine"
   DELETE /api/tables/{id}                   the creator closes the table
 
 WebSocket /ws/tables/{id}?token=...: the table's snapshot (table.snapshot)
@@ -102,6 +103,7 @@ def create_app(
         body_field(body, "name"),
         body_field(body, "player"),
         body.get("seat", 0),
+        body.get("lang"),
     )
     return {"id": table.id, "token": token}
 
@@ -142,6 +144,15 @@ def create_app(
       x_seat_token: Optional[str] = fastapi.Header(None),
   ):
     guarded(table_of(table_id).act, x_seat_token, body_field(body, "action"))
+    return {"ok": True}
+
+  @app.post("/api/tables/{table_id}/throw")
+  async def throw(
+      table_id: str,
+      body: dict = fastapi.Body(...),
+      x_seat_token: Optional[str] = fastapi.Header(None),
+  ):
+    guarded(table_of(table_id).throw, x_seat_token, body_field(body, "kind"))
     return {"ok": True}
 
   @app.delete("/api/tables/{table_id}")

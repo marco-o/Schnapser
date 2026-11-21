@@ -31,9 +31,12 @@ class Lobby:
     self._rng = rng or random.Random()
 
   def create(
-      self, name: str, player: str, seat: int
+      self, name: str, player: str, seat: int, lang: Optional[str] = None
   ) -> tuple[table_lib.Table, str]:
-    """A new table with its creator at `seat`; returns (table, token)."""
+    """A new table with its creator at `seat`; returns (table, token).
+
+    `lang`: the language the table shows (table.LANGS; None: Italian).
+    """
     self._prune()
     if len(self.tables) >= self._settings.max_tables:
       raise table_lib.TableError("too many tables; close one first")
@@ -46,6 +49,7 @@ class Lobby:
         self._settings,
         self._game,
         random.Random(self._rng.random()),
+        lang=lang,
     )
     token = table.sit(seat, player, creator=True)
     self.tables[table_id] = table

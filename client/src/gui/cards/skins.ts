@@ -37,6 +37,8 @@ export interface Skin {
    * pip (schnaps-web: the photographed deck); absent for glyph skins.
    */
   faceImage?(card: Card): string;
+  /** schnaps-web: the accessible name of a face-down card, translated. */
+  readonly faceDownName?: string;
 }
 
 const GLYPHS: Record<Suit, string> = {s: '♠', h: '♥', d: '♦', c: '♣'};

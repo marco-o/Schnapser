@@ -60,7 +60,7 @@ export function CardFace({
   action,
 }: CardFaceProps): JSX.Element {
   const card = parseShown(code);
-  const name = card === null ? 'Face-down card' : skin.cardName(card);
+  const name = card === null ? (skin.faceDownName ?? 'Face-down card') : skin.cardName(card);
   const label = action === undefined ? name : `${name}: ${action}`;
   const className =
     card === null ? 'playing-card playing-card--back' : 'playing-card';

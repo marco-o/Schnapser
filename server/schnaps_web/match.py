@@ -63,6 +63,9 @@ class DealResult:
     points: the points it won.
     need_after: each pair's points still needed after the deal (before a
       new set resets them).
+    throw: the cardthrowup that ended the deal, or None: {"kind" ("resign"
+      or "allmine"), "seat" (table seat), "accepted" (an Allmine's verdict),
+      "text"} (docs/cardthrowup.md).
   """
 
   number: int
@@ -75,6 +78,7 @@ class DealResult:
   winner: int
   points: int
   need_after: tuple[int, int]
+  throw: Optional[dict] = None
 
   def to_json(self) -> dict:
     return dataclasses.asdict(self)
@@ -133,6 +137,7 @@ class Match:
       contract: str,
       declarer_game_seat: Optional[int],
       flecks: int,
+      throw: Optional[dict] = None,
   ) -> dict:
     """Scores a finished deal and moves the dealer on.
 
@@ -141,6 +146,7 @@ class Match:
       contract: the contract played.
       declarer_game_seat: the declarer's game seat (None for Normal).
       flecks: the flecks.
+      throw: the throw that ended it (DealResult.throw), or None.
 
     Returns:
       {"deal": DealResult, "set_winner": pair or None, "match_winner": pair
@@ -169,6 +175,7 @@ class Match:
         winner=pair,
         points=points,
         need_after=(self.need[0], self.need[1]),
+        throw=throw,
     )
     self.deals.append(result)
     set_winner = match_winner = None

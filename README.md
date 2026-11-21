@@ -152,6 +152,13 @@ The site has no passwords; anyone on your network can open it. Keep the
 firewall rule on the **Private** profile, so it applies only on your home
 network.
 
+**On a phone, hold it sideways.** In landscape (any screen at most 500 px
+tall) the felt fills the screen under a slim header and scales to fit, down
+to 640 × 360; the call buttons, the deal's result and the Resign/Allmine bar
+float over the felt, and the scoreboard, seats and score sheet are below it.
+Held upright, the page asks you to turn the phone. (CSS: the `max-height:
+500px` blocks at the end of `site.css` and `gui/games/schnaps/schnaps.css`.)
+
 ## Tests
 
 ```powershell
@@ -166,7 +173,48 @@ They cover:
   (`tests/test_deal.py`);
 - the API and WebSocket: seats, permissions, privacy, a human move, a
   complete match between bots, bot names, and the read-only watch app
-  (`tests/test_app.py`).
+  (`tests/test_app.py`);
+- each table's language: Italian by default, carried to the lobby list,
+  players, spectators and the watch app (`tests/test_lang.py`);
+- the translation table (`client/src/i18n/strings.test.ts`, run with
+  `node --test`; `test.sh` runs it after the server tests when it gets no
+  arguments): every string in every language with the same parameters, the
+  Italian card names, Pass/Weiter/Via, move buttons and server errors.
+
+## Languages
+
+The site speaks **Italian** (preselected), **German** and **English**
+(the base language: a missing translation falls back to it).
+
+- **The language belongs to the table.** Pick it in the lobby before
+  **Start table**. Everyone at that table, players and spectators (also on
+  the watch port), sees that language. The lobby shows the language picked
+  there, and the browser remembers it for the next table.
+- **Game terms:** Italian and English keep the German names of the suits
+  (Herz, Caro, Pik, Kreuz), the contracts (Schnapser, Lomt, Bauern, Jodler,
+  Hermort, Normal) and Fleck. Pass is **Weiter** in German and **Via** in
+  Italian. The Italian ranks are Asso, Dieci, Re, Cavallo and Nižek (Unter;
+  the Slovenian name used in Val Canale).
+- **Where the strings are:** all of them are in
+  `client/src/i18n/strings.ts`. The server stays language-neutral: it sends
+  card codes, action ids, contract names, bids ("Pass") and English error
+  messages, and the client translates them. Move buttons are built from the
+  action id. Server errors are matched against the `err…` keys.
+
+**To add a string:**
+
+1. Add a key to `STRINGS` in `client/src/i18n/strings.ts` with `en`, `de`
+   and `it`. Write a parameter as `{name}`, the same in all three.
+2. Show it with `t(lang, 'key', {name: value})`, or in a component under the
+   table page with `const tr = useT(); tr('key', {name: value})`
+   (`client/src/i18n/lang.tsx`).
+3. If the server sends a new error players can trigger, add an `err…` key
+   whose `en` is exactly the server's text (`{x}` stands for a value).
+4. Run `scripts/test.sh` and rebuild the client.
+
+A new language: add it to `Lang`, `LANGS` and `LANG_NAMES` in
+`strings.ts`, give every entry a translation for it (TypeScript lists the
+missing ones), and add it to `LANGS` in `server/schnaps_web/table.py`.
 
 ## Layout
 
@@ -182,7 +230,8 @@ server/schnaps_web/
   game/         copied from the development tree (see below)
   tools/        build_player.py: assembles a player in models/
 client/src/
-  lobby/        the lobby page
+  i18n/         every string in Italian, German and English; the lookup
+  lobby/        the lobby page (with the language picker)
   table/        the table page: scoreboard, seats, result, score sheet
   net/          REST calls and the table's WebSocket
   gui/          the table UI, copied from the OpenSpiel GUI

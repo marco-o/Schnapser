@@ -258,3 +258,206 @@
 .schnaps-info .schnaps-suit {
   height: 24px;
 }
+
+/*
+  schnaps-web: a phone held sideways (landscape, at most 500 px tall). The
+  felt fills the screen under the page header and everything on it scales
+  with --u, one unit per CSS pixel at 640 x 360 (the felt is then 640 x 328
+  under a 32 px header). The status and the deal's facts sit in the top
+  corners, the top and bottom seats put their names beside their cards, and
+  the call buttons float over the middle of the felt instead of taking a
+  row under it. Desktop and tablet keep the layout above.
+*/
+@media (orientation: landscape) and (max-height: 500px) {
+  .schnaps {
+    --felt-h: calc(100vh - var(--site-header-h, 32px));
+    --felt-h: calc(100dvh - var(--site-header-h, 32px));
+    --u: min(calc(var(--felt-h) / 328), calc(100vw / 640));
+    position: relative;
+    display: block;
+    height: var(--felt-h);
+  }
+
+  .schnaps-table {
+    box-sizing: border-box;
+    height: 100%;
+    grid-template-areas:
+      '. top .'
+      'left trick right'
+      '. bottom .';
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    gap: calc(1 * var(--u)) calc(6 * var(--u));
+    padding: calc(3 * var(--u)) calc(6 * var(--u));
+    border-radius: 0;
+    border-width: 0;
+  }
+
+  .schnaps-status {
+    position: absolute;
+    z-index: 1;
+    top: calc(6 * var(--u));
+    right: calc(10 * var(--u));
+    max-width: 26%;
+    color: var(--color-felt-text);
+    font-size: calc(11 * var(--u));
+    line-height: 1.25;
+    text-align: right;
+  }
+
+  .schnaps-info {
+    position: absolute;
+    z-index: 1;
+    top: calc(6 * var(--u));
+    left: calc(10 * var(--u));
+    flex-direction: column;
+    flex-wrap: nowrap;
+    gap: calc(1 * var(--u));
+    max-width: 26%;
+    padding: calc(3 * var(--u)) calc(6 * var(--u));
+    font-size: calc(10 * var(--u));
+  }
+
+  .schnaps-info__item {
+    min-width: 0;
+  }
+
+  .schnaps-info dt {
+    overflow: hidden;
+    min-width: 0;
+    text-overflow: ellipsis;
+  }
+
+  .schnaps-info .schnaps-suit {
+    height: calc(14 * var(--u));
+  }
+
+  .schnaps-seat {
+    padding: 0 calc(4 * var(--u));
+  }
+
+  .schnaps .card-row__label {
+    font-size: calc(11 * var(--u));
+    line-height: 1.25;
+  }
+
+  .schnaps .card-row__cards {
+    gap: calc(3 * var(--u));
+    padding-top: calc(5 * var(--u));
+  }
+
+  .schnaps-seat[data-place='top'] .card-row,
+  .schnaps-seat[data-place='bottom'] .card-row {
+    flex-direction: row;
+    gap: calc(8 * var(--u));
+    align-items: center;
+  }
+
+  .schnaps-seat .card-row__label {
+    max-width: calc(120 * var(--u));
+  }
+
+  .schnaps-seat[data-place='top'] .card-row__label,
+  .schnaps-seat[data-place='bottom'] .card-row__label {
+    text-align: right;
+  }
+
+  .schnaps .playing-card {
+    width: calc(56 * var(--u));
+    height: calc(90 * var(--u));
+  }
+
+  .schnaps .playing-card--back {
+    width: calc(30 * var(--u));
+    height: calc(48 * var(--u));
+  }
+
+  /* The other seats' hands, face down or (the watch port) face up. */
+  .schnaps .card-row__cards[data-fanned='true'] > .playing-card {
+    width: calc(34 * var(--u));
+    height: calc(55 * var(--u));
+  }
+
+  .schnaps .card-row__cards[data-fanned='true'] > .playing-card--back {
+    width: calc(30 * var(--u));
+    height: calc(48 * var(--u));
+  }
+
+  .schnaps .card-row__cards[data-fanned='true'] > .playing-card + .playing-card,
+  .schnaps-seat[data-place='left']
+    .card-row__cards[data-fanned='true']
+    > .playing-card
+    + .playing-card,
+  .schnaps-seat[data-place='right']
+    .card-row__cards[data-fanned='true']
+    > .playing-card
+    + .playing-card {
+    margin-left: calc(-20 * var(--u));
+  }
+
+  /* The trick as a cross whose cards overlap a little, the caption under. */
+  .schnaps-trick {
+    grid-template-areas: none;
+    grid-template-columns: repeat(3, calc(48 * var(--u)));
+    grid-template-rows: repeat(4, calc(34 * var(--u))) auto;
+  }
+
+  .schnaps .schnaps-trick .playing-card {
+    width: calc(42 * var(--u));
+    height: calc(67 * var(--u));
+  }
+
+  .schnaps-trick__card[data-place='top'] {
+    grid-area: 1 / 2 / 3 / 3;
+  }
+
+  .schnaps-trick__card[data-place='left'] {
+    grid-area: 2 / 1 / 4 / 2;
+  }
+
+  .schnaps-trick__card[data-place='right'] {
+    grid-area: 2 / 3 / 4 / 4;
+  }
+
+  .schnaps-trick__card[data-place='bottom'] {
+    z-index: 1;
+    grid-area: 3 / 2 / 5 / 3;
+  }
+
+  .schnaps-trick__caption {
+    grid-area: 5 / 1 / 6 / 4;
+    font-size: calc(10 * var(--u));
+  }
+
+  .schnaps-announce {
+    z-index: 2;
+    font-size: calc(13 * var(--u));
+  }
+
+  /* The call buttons over the middle of the felt, clear of your hand. */
+  .schnaps-moves {
+    position: absolute;
+    z-index: 3;
+    inset: calc(58 * var(--u)) 16% calc(104 * var(--u));
+    flex-wrap: wrap;
+    gap: calc(6 * var(--u));
+    align-content: center;
+    justify-content: center;
+    pointer-events: none;
+  }
+
+  .schnaps-moves > .button {
+    min-height: 34px;
+    box-shadow: 0 2px 8px var(--color-shadow);
+    pointer-events: auto;
+  }
+
+  .schnaps-moves .button--suit {
+    min-width: max(40px, calc(48 * var(--u)));
+    min-height: max(40px, calc(48 * var(--u)));
+  }
+
+  .schnaps-moves .button--suit .schnaps-suit {
+    height: max(30px, calc(36 * var(--u)));
+  }
+}

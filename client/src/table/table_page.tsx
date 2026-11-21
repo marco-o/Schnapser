@@ -1,10 +1,13 @@
 // One table: the scoreboard, the seats (with the creator's bot controls),
 // the card table (the copied OpenSpiel schnaps renderer), the result of the
-// last deal and the score sheet.
+// last deal and the score sheet. Everything shows in the table's language
+// (snapshot.lang, chosen when the table was started; i18n/strings.ts).
 
-import {type JSX, useState} from 'react';
+import {type JSX, useEffect, useState} from 'react';
 
 import {SchnapsRenderer} from '../gui/games/schnaps/schnaps_renderer.tsx';
+import {LangContext, storedLang, useLang, useT} from '../i18n/lang.tsx';
+import {botLabel, type Key, type Params, serverError, t} from '../i18n/strings.ts';
 import {
   api,
   ApiError,
@@ -16,6 +19,7 @@ import {
 } from '../net/api.ts';
 import {useTable} from '../net/use_table.ts';
 import {contractText, pairNames, phaseLabel, seatName} from './labels.ts';
+import {ThrowBar, throwMark, ThrowNotice} from './throw_bar.tsx';
 
 export function TablePage({
   tableId,
@@ -30,20 +34,26 @@ export function TablePage({
   const [token, setLocalToken] = useState(watch ? null : tokenOf(tableId));
   const {snapshot, connection} = useTable(tableId, token);
   const [error, setError] = useState('');
+  // The table's language; the lobby's choice until the first snapshot.
+  const lang = snapshot?.lang ?? storedLang();
+  const tr = (key: Key, params?: Params) => t(lang, key, params);
+  useEffect(() => {
+    document.documentElement.lang = lang;
+  }, [lang]);
 
   const run = (job: () => Promise<unknown>) => {
     setError('');
     job().catch((e: unknown) => {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(e instanceof ApiError ? serverError(lang, e.message) : String(e));
     });
   };
 
   if (connection === 'gone' || snapshot?.phase === 'closed') {
     return (
       <main className="site-page">
-        <p>This table is closed.</p>
+        <p>{tr('tableClosed')}</p>
         <button type="button" className="button" onClick={() => go('/')}>
-          Back to the lobby
+          {tr('backToLobby')}
         </button>
       </main>
     );
@@ -51,7 +61,7 @@ export function TablePage({
   if (snapshot === null) {
     return (
       <main className="site-page">
-        <p>Connecting…</p>
+        <p>{tr('connecting')}</p>
       </main>
     );
   }
@@ -60,7 +70,7 @@ export function TablePage({
     run(async () => {
       let name = nickname();
       if (!name) {
-        name = window.prompt('Your nickname?')?.trim() ?? '';
+        name = window.prompt(tr('nicknamePrompt'))?.trim() ?? '';
         if (!name) return;
         setNickname(name);
       }
@@ -87,79 +97,87 @@ export function TablePage({
     : null;
 
   return (
-    <main className="site-page site-page--table">
-      <header className="site-header">
-        <button type="button" className="button button--small" onClick={() => go('/')}>
-          ← Lobby
-        </button>
-        <h1>{snapshot.name}</h1>
-        <span className="site-badge">{phaseLabel(snapshot.phase)}</span>
-        {watch && <span className="site-badge">watching · all cards shown</span>}
-        {connection !== 'live' && (
-          <span className="site-badge site-badge--warn">reconnecting…</span>
+    <LangContext.Provider value={lang}>
+      <main className="site-page site-page--table">
+        <header className="site-header">
+          <button type="button" className="button button--small" onClick={() => go('/')}>
+            {tr('lobbyLink')}
+          </button>
+          <h1>{snapshot.name}</h1>
+          <span className="site-badge">{phaseLabel(lang, snapshot.phase)}</span>
+          {watch && <span className="site-badge">{tr('watchingBadge')}</span>}
+          {connection !== 'live' && (
+            <span className="site-badge site-badge--warn">{tr('reconnecting')}</span>
+          )}
+        </header>
+
+        <p className="site-rotate-hint">{tr('rotateHint')}</p>
+
+        {error && (
+          <p className="site-error" role="alert">
+            {error}
+          </p>
         )}
-      </header>
 
-      {error && (
-        <p className="site-error" role="alert">
-          {error}
-        </p>
-      )}
-
-      <div className="site-layout">
-        <aside className="site-side">
-          <Scoreboard snapshot={snapshot} />
-          <Seats
-            snapshot={snapshot}
-            token={token}
-            sit={sit}
-            leave={leave}
-            run={run}
-            tableId={tableId}
-            watch={watch}
-          />
-          {snapshot.isCreator && (
-            <section className="site-card">
-              {(snapshot.phase === 'open' || snapshot.phase === 'match_over') && (
+        <div className="site-layout">
+          <aside className="site-side">
+            <Scoreboard snapshot={snapshot} />
+            <Seats
+              snapshot={snapshot}
+              token={token}
+              sit={sit}
+              leave={leave}
+              run={run}
+              tableId={tableId}
+              watch={watch}
+            />
+            {snapshot.isCreator && (
+              <section className="site-card">
+                {(snapshot.phase === 'open' || snapshot.phase === 'match_over') && (
+                  <button
+                    type="button"
+                    className="button"
+                    disabled={snapshot.seats.some(s => s.kind === 'empty')}
+                    onClick={() => run(() => api.start(tableId, token))}
+                  >
+                    {snapshot.phase === 'open' ? tr('startMatch') : tr('newMatch')}
+                  </button>
+                )}{' '}
                 <button
                   type="button"
-                  className="button"
-                  disabled={snapshot.seats.some(s => s.kind === 'empty')}
-                  onClick={() => run(() => api.start(tableId, token))}
+                  className="button button--small"
+                  onClick={() => {
+                    if (window.confirm(tr('closeTableConfirm'))) {
+                      run(() => api.close(tableId, token));
+                    }
+                  }}
                 >
-                  {snapshot.phase === 'open' ? 'Start match' : 'New match'}
+                  {tr('closeTable')}
                 </button>
-              )}{' '}
-              <button
-                type="button"
-                className="button button--small"
-                onClick={() => {
-                  if (window.confirm('Close this table for everyone?')) {
-                    run(() => api.close(tableId, token));
-                  }
-                }}
-              >
-                Close table
-              </button>
-            </section>
-          )}
-        </aside>
+              </section>
+            )}
+          </aside>
 
-        <section className="site-game">
-          <ResultBanner snapshot={snapshot} />
-          {snapshot.frame ? (
-            <Table snapshot={snapshot} play={play} />
-          ) : (
-            <p className="site-card">
-              {snapshot.isCreator
-                ? 'Fill the empty seats (players or bots), then start the match.'
-                : 'Waiting for the table to start.'}
-            </p>
-          )}
-          <ScoreSheet snapshot={snapshot} />
-        </section>
-      </div>
-    </main>
+          <section className="site-game">
+            <ThrowNotice snapshot={snapshot} />
+            <ResultBanner snapshot={snapshot} />
+            {snapshot.frame ? (
+              // On phones what follows <Table> in .site-felt (the
+              // .site-felt__actions bar) floats over the felt (site.css).
+              <div className="site-felt">
+                <Table snapshot={snapshot} play={play} />
+                <ThrowBar snapshot={snapshot} tableId={tableId} token={token} run={run} />
+              </div>
+            ) : (
+              <p className="site-card">
+                {snapshot.isCreator ? tr('fillSeats') : tr('waitingForStart')}
+              </p>
+            )}
+            <ScoreSheet snapshot={snapshot} />
+          </section>
+        </div>
+      </main>
+    </LangContext.Provider>
   );
 }
 
@@ -171,12 +189,13 @@ function Table({
   readonly play: ((action: number) => void) | null;
 }): JSX.Element {
   const frame = snapshot.frame!;
+  const lang = useLang();
   // Game seat g sits at table seat seatMap[g]. The trump and the bids are
   // drawn next to the names by the renderer.
-  const labels = frame.seatMap.map(t => {
-    const s = snapshot.seats[t];
-    const name = seatName(snapshot.seats, t);
-    return s?.kind === 'human' && !s.online ? `${name} · offline` : name;
+  const labels = frame.seatMap.map(seat => {
+    const s = snapshot.seats[seat];
+    const name = seatName(lang, snapshot.seats, seat);
+    return s?.kind === 'human' && !s.online ? t(lang, 'nameOffline', {name}) : name;
   });
   // Spectators see table seat 0 at the bottom.
   const bottomSeat = Math.max(0, frame.seatMap.indexOf(0));
@@ -193,21 +212,23 @@ function Table({
 
 function Scoreboard({snapshot}: {readonly snapshot: TableSnapshot}): JSX.Element {
   const m = snapshot.match;
+  const lang = useLang();
+  const tr = useT();
   return (
-    <section className="site-card" aria-label="Score">
-      <h2>{m ? `Set ${m.setNumber} · best of 3` : 'Score'}</h2>
+    <section className="site-card" aria-label={tr('score')}>
+      <h2>{m ? tr('setOfThree', {n: m.setNumber}) : tr('score')}</h2>
       <table className="site-score">
         <thead>
           <tr>
-            <th>Pair</th>
-            <th>Points to go</th>
-            <th>Sets</th>
+            <th>{tr('pair')}</th>
+            <th>{tr('pointsToGo')}</th>
+            <th>{tr('sets')}</th>
           </tr>
         </thead>
         <tbody>
           {[0, 1].map(p => (
             <tr key={p} data-winner={m?.winner === p ? 'true' : undefined}>
-              <td>{pairNames(p, snapshot.seats)}</td>
+              <td>{pairNames(lang, p, snapshot.seats)}</td>
               <td className="site-score__need">{m ? m.need[p] : 31}</td>
               <td>{m ? m.sets[p] : 0}</td>
             </tr>
@@ -216,7 +237,7 @@ function Scoreboard({snapshot}: {readonly snapshot: TableSnapshot}): JSX.Element
       </table>
       {snapshot.dealer !== null && (
         <p className="site-muted">
-          Dealer: {seatName(snapshot.seats, snapshot.dealer)}
+          {tr('dealerIs', {name: seatName(lang, snapshot.seats, snapshot.dealer)})}
         </p>
       )}
     </section>
@@ -240,37 +261,43 @@ function Seats({
   readonly tableId: string;
   readonly watch: boolean;
 }): JSX.Element {
+  const lang = useLang();
+  const tr = useT();
   // On the watch port nobody may sit.
   const seated = watch || snapshot.you !== null;
   return (
-    <section className="site-card" aria-label="Seats">
-      <h2>Seats</h2>
+    <section className="site-card" aria-label={tr('seats')}>
+      <h2>{tr('seats')}</h2>
       <ul className="site-seats">
         {snapshot.seats.map((s, i) => (
           <li key={i} className="site-seat">
-            <span className="site-seat__where">Seat {i + 1}</span>
+            <span className="site-seat__where">{tr('seatN', {n: i + 1})}</span>
             <span className="site-seat__who">
               {s.kind === 'empty' ? (
-                <em className="site-muted">empty</em>
+                <em className="site-muted">{tr('empty')}</em>
               ) : (
                 <>
                   <span
                     className="site-dot"
                     data-online={s.online ? 'true' : 'false'}
-                    title={s.online ? 'online' : 'offline'}
+                    title={s.online ? tr('online') : tr('offline')}
                   />
                   {s.name}
                   {s.kind === 'bot' && (
-                    <span className="site-muted"> ({s.botLabel ?? 'bot'} bot)</span>
+                    <span className="site-muted">
+                      {s.botLabel
+                        ? ` ${tr('botOfKind', {label: botLabel(lang, s.botLabel)})}`
+                        : tr('botSuffix')}
+                    </span>
                   )}
-                  {s.you && <strong> (you)</strong>}
+                  {s.you && <strong> {tr('you')}</strong>}
                 </>
               )}
             </span>
             <span className="site-seat__actions">
               {s.kind === 'empty' && !seated && (
                 <button type="button" className="button button--small" onClick={() => sit(i)}>
-                  Sit here
+                  {tr('sitHere')}
                 </button>
               )}
               {snapshot.isCreator &&
@@ -282,17 +309,17 @@ function Seats({
                     className="button button--small"
                     onClick={() => run(() => api.setBot(tableId, i, b.name, token))}
                   >
-                    + {b.label}
+                    {tr('addBot', {label: botLabel(lang, b.label)})}
                   </button>
                 ))}
               {snapshot.isCreator && s.kind === 'bot' && (
                 <button type="button" className="button button--small" onClick={() => leave(i)}>
-                  Remove bot
+                  {tr('removeBot')}
                 </button>
               )}
               {s.you && snapshot.phase === 'open' && (
                 <button type="button" className="button button--small" onClick={() => leave(i)}>
-                  Leave
+                  {tr('leave')}
                 </button>
               )}
             </span>
@@ -304,56 +331,58 @@ function Seats({
 }
 
 function ResultBanner({snapshot}: {readonly snapshot: TableSnapshot}): JSX.Element | null {
+  const lang = useLang();
+  const tr = useT();
   const r = snapshot.lastResult;
   if (r === null || (snapshot.phase !== 'deal_over' && snapshot.phase !== 'match_over')) {
     return null;
   }
   const d = r.deal;
-  const declarer = d.declarer === null ? null : seatName(snapshot.seats, d.declarer);
+  const declarer = d.declarer === null ? null : seatName(lang, snapshot.seats, d.declarer);
+  const pair = (p: number) => pairNames(lang, p, snapshot.seats);
   return (
     <div className="site-result" role="status">
       <strong>
-        {pairNames(d.winner, snapshot.seats)} win {d.points} point{d.points === 1 ? '' : 's'}
+        {tr(d.points === 1 ? 'winPoint' : 'winPoints', {pair: pair(d.winner), n: d.points})}
       </strong>
       <span>
-        {contractText(d.contract, d.flecks)}
-        {declarer ? ` by ${declarer}` : ''}
+        {contractText(lang, d.contract, d.flecks)}
+        {declarer ? tr('byDeclarer', {name: declarer}) : ''}
       </span>
       <span>
-        To go: {pairNames(0, snapshot.seats)} {d.need_after[0]} ·{' '}
-        {pairNames(1, snapshot.seats)} {d.need_after[1]}
+        {tr('toGo')} {pair(0)} {d.need_after[0]} · {pair(1)} {d.need_after[1]}
       </span>
       {r.setWinner !== null && (
-        <strong>Set {d.set_number} to {pairNames(r.setWinner, snapshot.seats)}!</strong>
+        <strong>{tr('setTo', {n: d.set_number, pair: pair(r.setWinner)})}</strong>
       )}
-      {r.matchWinner !== null && (
-        <strong>Match to {pairNames(r.matchWinner, snapshot.seats)}!</strong>
-      )}
-      {snapshot.phase === 'deal_over' && <span className="site-muted">Next deal in a moment…</span>}
+      {r.matchWinner !== null && <strong>{tr('matchTo', {pair: pair(r.matchWinner)})}</strong>}
+      {snapshot.phase === 'deal_over' && <span className="site-muted">{tr('nextDeal')}</span>}
     </div>
   );
 }
 
 function ScoreSheet({snapshot}: {readonly snapshot: TableSnapshot}): JSX.Element | null {
+  const lang = useLang();
+  const tr = useT();
   const deals = snapshot.match?.deals ?? [];
   if (deals.length === 0) return null;
   const name = (seat: number | null) =>
-    seat === null ? '—' : seatName(snapshot.seats, seat);
+    seat === null ? '—' : seatName(lang, snapshot.seats, seat);
   return (
-    <section className="site-card" aria-label="Score sheet">
-      <h2>Score sheet</h2>
+    <section className="site-card" aria-label={tr('scoreSheet')}>
+      <h2>{tr('scoreSheet')}</h2>
       <table className="site-sheet">
         <thead>
           <tr>
-            <th>#</th>
-            <th>Set</th>
-            <th>Dealer</th>
-            <th>Contract</th>
-            <th>Declarer</th>
-            <th>Won by</th>
-            <th>Pts</th>
-            <th>{pairNames(0, snapshot.seats)}</th>
-            <th>{pairNames(1, snapshot.seats)}</th>
+            <th>{tr('colNumber')}</th>
+            <th>{tr('colSet')}</th>
+            <th>{tr('colDealer')}</th>
+            <th>{tr('colContract')}</th>
+            <th>{tr('colDeclarer')}</th>
+            <th>{tr('colWonBy')}</th>
+            <th>{tr('colPoints')}</th>
+            <th>{pairNames(lang, 0, snapshot.seats)}</th>
+            <th>{pairNames(lang, 1, snapshot.seats)}</th>
           </tr>
         </thead>
         <tbody>
@@ -362,9 +391,12 @@ function ScoreSheet({snapshot}: {readonly snapshot: TableSnapshot}): JSX.Element
               <td>{d.number}</td>
               <td>{d.set_number}</td>
               <td>{name(d.dealer)}</td>
-              <td>{contractText(d.contract, d.flecks)}</td>
+              <td>
+                {contractText(lang, d.contract, d.flecks)}
+                {d.throw ? ` · ${throwMark(tr, d.throw)} (${name(d.throw.seat)})` : ''}
+              </td>
               <td>{name(d.declarer)}</td>
-              <td>{pairNames(d.winner, snapshot.seats)}</td>
+              <td>{pairNames(lang, d.winner, snapshot.seats)}</td>
               <td>{d.points}</td>
               <td>{d.need_after[0]}</td>
               <td>{d.need_after[1]}</td>

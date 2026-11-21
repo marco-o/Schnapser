@@ -1,7 +1,21 @@
-// The lobby: your nickname, the tables (refreshed every few seconds), a
-// form to start a table, and a free seat to take at any table.
+// The lobby: the language, your nickname, the tables (refreshed every few
+// seconds), a form to start a table, and a free seat to take at any table.
+// The lobby shows the language picked here (Italian until one is picked); a
+// table started here keeps that language for everyone at it.
 
 import {type JSX, useEffect, useState} from 'react';
+
+import {storedLang, storeLang} from '../i18n/lang.tsx';
+import {
+  type Key,
+  type Lang,
+  LANG_NAMES,
+  LANGS,
+  type Params,
+  serverError,
+  STRINGS,
+  t,
+} from '../i18n/strings.ts';
 
 import {
   api,
@@ -27,6 +41,15 @@ export function Lobby({
   const [tableName, setTableName] = useState('');
   const [seat, setSeat] = useState(0);
   const [error, setError] = useState('');
+  const [lang, setLang] = useState<Lang>(storedLang());
+  const tr = (key: Key, params?: Params) => t(lang, key, params);
+  useEffect(() => {
+    document.documentElement.lang = lang;
+  }, [lang]);
+  const pickLang = (l: Lang) => {
+    setLang(l);
+    storeLang(l);
+  };
 
   useEffect(() => {
     let stopped = false;
@@ -37,7 +60,7 @@ export function Lobby({
           if (!stopped) setTables(t);
         })
         .catch(() => {
-          if (!stopped) setError('The server is not reachable.');
+          if (!stopped) setError('serverUnreachable');
         });
     };
     load();
@@ -51,7 +74,7 @@ export function Lobby({
   const needName = (): string | null => {
     const n = name.trim();
     if (!n) {
-      setError('Enter your nickname first.');
+      setError('enterNicknameFirst');
       return null;
     }
     setNickname(n);
@@ -61,7 +84,7 @@ export function Lobby({
   const run = (job: () => Promise<void>) => {
     setError('');
     job().catch((e: unknown) => {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(e instanceof ApiError ? serverError(lang, e.message) : String(e));
     });
   };
 
@@ -69,8 +92,8 @@ export function Lobby({
     run(async () => {
       const player = needName();
       if (player === null) return;
-      const title = tableName.trim() || `${player}'s table`;
-      const {id, token} = await api.create(title, player, seat);
+      const title = tableName.trim() || tr('defaultTableName', {player});
+      const {id, token} = await api.create(title, player, seat, lang);
       setToken(id, token);
       go(`/table/${id}`);
     });
@@ -86,45 +109,60 @@ export function Lobby({
 
   return (
     <main className="site-page">
-      <h1 className="site-title">Schnaps{watch ? ' · watching, all cards shown' : ''}</h1>
+      <h1 className="site-title">
+        {tr('siteTitle')}
+        {watch ? ` · ${tr('watchingTitle')}` : ''}
+      </h1>
+      <section className="site-card">
+        <label className="site-field">
+          <span>{watch ? tr('language') : tr('tableLanguage')}</span>
+          <select value={lang} onChange={e => pickLang(e.target.value as Lang)}>
+            {LANGS.map(l => (
+              <option key={l} value={l}>
+                {LANG_NAMES[l]}
+              </option>
+            ))}
+          </select>
+        </label>
+      </section>
       {!watch && (<>
       <section className="site-card">
         <label className="site-field">
-          <span>Your nickname</span>
+          <span>{tr('yourNickname')}</span>
           <input
             value={name}
             maxLength={20}
             onChange={e => setName(e.target.value)}
             onBlur={() => name.trim() && setNickname(name.trim())}
-            placeholder="e.g. Anna"
+            placeholder={tr('nicknameExample')}
           />
         </label>
       </section>
 
       <section className="site-card">
-        <h2>Start a table</h2>
+        <h2>{tr('startATable')}</h2>
         <div className="site-row">
           <label className="site-field">
-            <span>Table name</span>
+            <span>{tr('tableName')}</span>
             <input
               value={tableName}
               maxLength={20}
               onChange={e => setTableName(e.target.value)}
-              placeholder="Stammtisch"
+              placeholder={tr('tableNameExample')}
             />
           </label>
           <label className="site-field">
-            <span>Your seat</span>
+            <span>{tr('yourSeat')}</span>
             <select value={seat} onChange={e => setSeat(Number(e.target.value))}>
               {SEAT_NUMBERS.map(i => (
                 <option key={i} value={i}>
-                  {seatChoice(i)}
+                  {seatChoice(lang, i)}
                 </option>
               ))}
             </select>
           </label>
           <button type="button" className="button" onClick={create}>
-            Start table
+            {tr('startTable')}
           </button>
         </div>
       </section>
@@ -132,16 +170,17 @@ export function Lobby({
 
       {error && (
         <p className="site-error" role="alert">
-          {error}
+          {/* Our own messages are keys; the server's arrive translated. */}
+          {Object.hasOwn(STRINGS, error) ? tr(error as Key) : error}
         </p>
       )}
 
       <section className="site-card">
-        <h2>Tables</h2>
+        <h2>{tr('tables')}</h2>
         {tables === null ? (
-          <p>Loading…</p>
+          <p>{tr('loading')}</p>
         ) : tables.length === 0 ? (
-          <p>{watch ? 'No tables yet.' : 'No tables yet. Start one above.'}</p>
+          <p>{watch ? tr('noTables') : tr('noTablesStartOne')}</p>
         ) : (
           <ul className="site-tables">
             {tables.map(t => {
@@ -150,33 +189,36 @@ export function Lobby({
                 <li key={t.id} className="site-table">
                   <div className="site-table__head">
                     <strong>{t.name}</strong>
-                    <span className="site-badge">{phaseLabel(t.phase)}</span>
+                    <span className="site-badge">{phaseLabel(lang, t.phase)}</span>
+                    <span className="site-badge" title={tr('tableLanguage')}>
+                      {LANG_NAMES[t.lang] ?? t.lang}
+                    </span>
                     {t.need && t.sets && (
                       <span className="site-muted">
-                        {pairNames(0, t.seats)} {t.need[0]} ({t.sets[0]} sets) ·{' '}
-                        {pairNames(1, t.seats)} {t.need[1]} ({t.sets[1]} sets)
+                        {pairNames(lang, 0, t.seats)} {t.need[0]} ({setsText(lang, t.sets[0])}) ·{' '}
+                        {pairNames(lang, 1, t.seats)} {t.need[1]} ({setsText(lang, t.sets[1])})
                       </span>
                     )}
                   </div>
                   <ol className="site-table__seats">
                     {t.seats.map((s, i) => (
                       <li key={i}>
-                        <span className="site-muted">Seat {i + 1}:</span>{' '}
+                        <span className="site-muted">{tr('seatN', {n: i + 1})}:</span>{' '}
                         {s.kind === 'empty' && watch ? (
-                          <em className="site-muted">empty</em>
+                          <em className="site-muted">{tr('empty')}</em>
                         ) : s.kind === 'empty' ? (
                           <button
                             type="button"
                             className="button button--small"
                             onClick={() => sit(t, i)}
                           >
-                            Sit here
+                            {tr('sitHere')}
                           </button>
                         ) : (
                           <span>
                             {s.name}
-                            {s.kind === 'bot' ? ' (bot)' : ''}
-                            {s.kind === 'human' && !s.online ? ' (offline)' : ''}
+                            {s.kind === 'bot' ? tr('botSuffix') : ''}
+                            {s.kind === 'human' && !s.online ? tr('offlineSuffix') : ''}
                           </span>
                         )}
                       </li>
@@ -187,7 +229,7 @@ export function Lobby({
                     className="button button--small"
                     onClick={() => go(`/table/${t.id}`)}
                   >
-                    {mine && !watch ? 'Back to my seat' : 'Watch'}
+                    {mine && !watch ? tr('backToMySeat') : tr('watch')}
                   </button>
                 </li>
               );
@@ -197,4 +239,9 @@ export function Lobby({
       </section>
     </main>
   );
+}
+
+/** "2 sets", in `lang`. */
+function setsText(lang: Lang, n: number | undefined): string {
+  return n === 1 ? t(lang, 'setsCountOne') : t(lang, 'setsCount', {n: n ?? 0});
 }
