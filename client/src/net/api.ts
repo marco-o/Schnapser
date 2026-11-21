@@ -109,6 +109,8 @@ export interface TableSnapshot {
     readonly matchWinner: number | null;
   } | null;
   readonly bots: ReadonlyArray<{readonly name: string; readonly label: string}>;
+  /** Between deals: the table seats holding the next deal back ("Wait"). */
+  readonly waiting?: readonly number[];
 }
 
 const TOKEN_KEY = (tableId: string) => `schnaps.token.${tableId}`;
@@ -194,6 +196,9 @@ export const api = {
   /** Resign, or claim every remaining trick (docs/cardthrowup.md). */
   throwCards: (id: string, kind: ThrowKind, token: string | null) =>
     call('POST', `/api/tables/${id}/throw`, {kind}, token),
+  /** Between deals: hold the next deal back (on) or let it come (off). */
+  wait: (id: string, on: boolean, token: string | null) =>
+    call('POST', `/api/tables/${id}/wait`, {on}, token),
   close: (id: string, token: string | null) =>
     call('DELETE', `/api/tables/${id}`, undefined, token),
 };

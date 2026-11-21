@@ -4,7 +4,9 @@ Life cycle (`phase`):
 
   open        waiting for players; the creator seats people or bots
   playing     a deal is in progress
-  deal_over   the deal's result shows for settings.deal_pause seconds
+  deal_over   the deal's result shows for settings.deal_pause seconds, or
+              longer while a seated player holds "Wait" (`wait`): the next
+              deal starts once the pause is over and nobody online waits
   match_over  a pair won two sets; the creator may start a new match
 
 Seats are "empty", "human" (a nickname and a private seat token) or "bot".
@@ -29,6 +31,7 @@ import asyncio
 import dataclasses
 import random
 import secrets
+import time
 from typing import Any, Awaitable, Callable, Optional
 
 import pyspiel
@@ -135,6 +138,7 @@ class Table:
     match: the match, None before the first start.
     deal: the current (or last) deal.
     last_result: the last deal's result for the overlay, or None.
+    waiting: the seats holding the next deal back ("Wait"), between deals.
   """
 
   def __init__(
@@ -155,7 +159,9 @@ class Table:
     self.match: Optional[match_lib.Match] = None
     self.deal: Optional[deal_lib.Deal] = None
     self.last_result: Optional[dict] = None
+    self.waiting: set[int] = set()
     self.closed = False
+    self._next_deal_at = 0.0  # time.monotonic() when the pause ends
     self._bots = bots
     self._settings = settings
     self._game = game
@@ -219,6 +225,7 @@ class Table:
     if s.kind == "human" and s.token != token:
       raise TableError(f"seat {seat} has a player")
     self.seats[seat] = Seat("bot", self._bot_name(seat), None, bot)
+    self.waiting.discard(seat)
     self._changed()
 
   def _bot_name(self, seat: int) -> str:
@@ -237,6 +244,7 @@ class Table:
     else:
       raise Forbidden("you may not empty that seat")
     self.seats[seat] = Seat()
+    self.waiting.discard(seat)
     self._changed()
 
   # -- play ------------------------------------------------------------------
@@ -255,7 +263,32 @@ class Table:
   def _new_deal(self) -> None:
     self.deal = deal_lib.Deal(self._game, self.match.dealer, self._rng)
     self.phase = "playing"
+    self.waiting.clear()
     self._changed()
+
+  def wait(self, token: Optional[str], on: Any) -> None:
+    """The token's seat holds the next deal back (on) or lets it come (off).
+
+    Only between deals (deal_over). The next deal starts once the pause is
+    over and no online seat waits: when the last one lets go after the
+    pause, at once.
+    """
+    seat = self.seat_of(token)
+    if seat is None:
+      raise Forbidden("you have no seat at this table")
+    if not isinstance(on, bool):
+      raise TableError("wait is true or false")
+    if self.phase != "deal_over":
+      raise TableError("no deal has just ended")
+    if on:
+      self.waiting.add(seat)
+    else:
+      self.waiting.discard(seat)
+    self._changed()
+
+  def _holding(self) -> list[int]:
+    """The seats that hold the next deal back: waiting and online."""
+    return sorted(s for s in self.waiting if self.online(s))
 
   def act(self, token: Optional[str], action: Any) -> None:
     """The token's seat plays `action` in the current deal."""
@@ -315,15 +348,20 @@ class Table:
         "matchWinner": out["match_winner"],
     }
     self.phase = "match_over" if out["match_winner"] is not None else "deal_over"
+    self.waiting.clear()
+    self._next_deal_at = time.monotonic() + self._settings.deal_pause
     self._changed()
 
   async def _drive(self) -> None:
     """Plays bot moves and moves between deals until a human must act."""
     while not self.closed:
       if self.phase == "deal_over":
-        await asyncio.sleep(self._settings.deal_pause)
-        if self.closed or self.phase != "deal_over":
-          continue
+        if self._holding():
+          return  # wait() (or a waiting player leaving) wakes us
+        delay = self._next_deal_at - time.monotonic()
+        if delay > 0:
+          await asyncio.sleep(delay)
+          continue  # look again: someone may have pressed Wait meanwhile
         self._new_deal()
         continue
       if self.phase != "playing":
@@ -441,6 +479,7 @@ class Table:
         "frame": self.deal.frame(seat, reveal) if self.deal else None,
         "reveal": reveal,
         "lastResult": self.last_result,
+        "waiting": self._holding() if self.phase == "deal_over" else [],
         "bots": [{"name": b.name, "label": b.label} for b in self._bots.values()],
     }
 

@@ -160,7 +160,7 @@ export function TablePage({
 
           <section className="site-game">
             <ThrowNotice snapshot={snapshot} />
-            <ResultBanner snapshot={snapshot} />
+            <ResultBanner snapshot={snapshot} tableId={tableId} token={token} run={run} />
             {snapshot.frame ? (
               // On phones what follows <Table> in .site-felt (the
               // .site-felt__actions bar) floats over the felt (site.css).
@@ -330,7 +330,17 @@ function Seats({
   );
 }
 
-function ResultBanner({snapshot}: {readonly snapshot: TableSnapshot}): JSX.Element | null {
+function ResultBanner({
+  snapshot,
+  tableId,
+  token,
+  run,
+}: {
+  readonly snapshot: TableSnapshot;
+  readonly tableId: string;
+  readonly token: string | null;
+  readonly run: (job: () => Promise<unknown>) => void;
+}): JSX.Element | null {
   const lang = useLang();
   const tr = useT();
   const r = snapshot.lastResult;
@@ -356,8 +366,50 @@ function ResultBanner({snapshot}: {readonly snapshot: TableSnapshot}): JSX.Eleme
         <strong>{tr('setTo', {n: d.set_number, pair: pair(r.setWinner)})}</strong>
       )}
       {r.matchWinner !== null && <strong>{tr('matchTo', {pair: pair(r.matchWinner)})}</strong>}
-      {snapshot.phase === 'deal_over' && <span className="site-muted">{tr('nextDeal')}</span>}
+      {snapshot.phase === 'deal_over' && (
+        <WaitControl snapshot={snapshot} tableId={tableId} token={token} run={run} />
+      )}
     </div>
+  );
+}
+
+/**
+ * Between deals: who holds the next deal back, and the seated player's
+ * Wait / Continue toggle (Table.wait on the server).
+ */
+function WaitControl({
+  snapshot,
+  tableId,
+  token,
+  run,
+}: {
+  readonly snapshot: TableSnapshot;
+  readonly tableId: string;
+  readonly token: string | null;
+  readonly run: (job: () => Promise<unknown>) => void;
+}): JSX.Element {
+  const lang = useLang();
+  const tr = useT();
+  const waiting = snapshot.waiting ?? [];
+  const me = snapshot.you;
+  const mine = me !== null && waiting.includes(me);
+  const names = waiting.map(seat => seatName(lang, snapshot.seats, seat)).join(', ');
+  return (
+    <span className="site-wait">
+      <span className="site-muted">
+        {waiting.length > 0 ? tr('waitingFor', {names}) : tr('nextDeal')}
+      </span>
+      {me !== null && !snapshot.reveal && (
+        <button
+          type="button"
+          className="button button--small"
+          aria-pressed={mine}
+          onClick={() => run(() => api.wait(tableId, !mine, token))}
+        >
+          {tr(mine ? 'waitRelease' : 'waitButton')}
+        </button>
+      )}
+    </span>
   );
 }
 

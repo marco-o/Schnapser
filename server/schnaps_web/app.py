@@ -155,6 +155,15 @@ def create_app(
     guarded(table_of(table_id).throw, x_seat_token, body_field(body, "kind"))
     return {"ok": True}
 
+  @app.post("/api/tables/{table_id}/wait")
+  async def wait(
+      table_id: str,
+      body: dict = fastapi.Body(...),
+      x_seat_token: Optional[str] = fastapi.Header(None),
+  ):
+    guarded(table_of(table_id).wait, x_seat_token, body_field(body, "on"))
+    return {"ok": True}
+
   @app.delete("/api/tables/{table_id}")
   async def close(table_id: str, x_seat_token: Optional[str] = fastapi.Header(None)):
     guarded(table_of(table_id).close, x_seat_token)

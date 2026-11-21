@@ -233,6 +233,13 @@ body {
   background: var(--color-accent-soft);
 }
 
+.site-wait {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+}
+
 .site-sheet {
   width: 100%;
   border-collapse: collapse;
@@ -365,6 +372,11 @@ body {
     box-shadow: 0 4px 16px var(--color-shadow);
     font-size: 0.9em;
     pointer-events: none;
+  }
+
+  /* The Wait button in the (otherwise click-through) result banner. */
+  .site-page--table .site-result .site-wait {
+    pointer-events: auto;
   }
 
   .site-page--table .site-felt__actions {

@@ -174,6 +174,13 @@ export const STRINGS = {
     de: 'Gleich kommt das nächste Spiel…',
     it: 'Tra poco la prossima mano…',
   },
+  waitButton: {en: 'Wait', de: 'Warten', it: 'Aspetta'},
+  waitRelease: {en: 'Continue', de: 'Weiter', it: 'Continua'},
+  waitingFor: {
+    en: 'The next deal waits for {names}',
+    de: 'Das nächste Spiel wartet auf {names}',
+    it: 'La prossima mano aspetta {names}',
+  },
   scoreSheet: {en: 'Score sheet', de: 'Spielliste', it: 'Segnapunti'},
   colNumber: {en: '#', de: '#', it: '#'},
   colSet: {en: 'Set', de: 'Satz', it: 'Set'},
@@ -329,6 +336,16 @@ export const STRINGS = {
     en: 'you can only claim during the card play',
     de: 'Ansprechen geht nur während des Ausspielens',
     it: 'Puoi reclamare solo durante il gioco delle carte',
+  },
+  errNoDealEnded: {
+    en: 'no deal has just ended',
+    de: 'Gerade ist kein Spiel zu Ende gegangen',
+    it: 'Nessuna mano è appena finita',
+  },
+  errWaitBool: {
+    en: 'wait is true or false',
+    de: 'Warten ist ja oder nein',
+    it: 'Aspetta è sì o no',
   },
   errThrowKind: {
     en: 'a throw is one of {kinds}',
