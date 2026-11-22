@@ -59,12 +59,35 @@ The set situation. `set_context(info)` reads an InfoState key "set_need"
 env provides it, else marks the context unknown. The schnaps-web site
 provides it; the "set_aware" rule uses it.
 
+Played results. The networks' estimates of a contract are uneven (the
+contract networks trained on forced deals; Schnapser by the Caller's
+partner, for one, is judged about half as likely as it is). `estimate`
+takes a `PlayedTable` (played_table.json, written by schnaps-web's
+scripts/build_played_table.py from deals the Basic bot played out): per
+hand class and seat, how many deals were played and how many won. The
+estimate's chance p_net of the bidder's pair winning is moved toward them:
+
+  p = (wins + prior * p_net) / (n + prior)
+
+so the network counts as `prior` deals (PLAYED_PRIOR = 16, the best fit of
+the played results to the network's success table) and a class with many
+deals follows its played rate. The bids it applies to are the bidder's own:
+passing on a Normal game (the bidder's pair winning it, valued as
+NORMAL_MEAN points a deal), calling Schnapser (only by the Caller or its
+partner, the seats that were played), Lomt and Bauern, and passing or
+flecking on the bidder's own contract. Bids against the other pair's
+contract keep the network's estimate (the played hands of a declarer were
+random, not the hands people call on).
+
 Simplifications: the estimate is myopic (it ignores later calls and flecks
 by the others), and the contract networks never saw overcalls or flecks in
 training, so such states are outside what they learned.
 """
 
-from typing import Any, Callable, Mapping, NamedTuple, Protocol, Union
+import functools
+import json
+import os
+from typing import Any, Callable, Mapping, NamedTuple, Optional, Protocol, Union
 
 import jax
 import jax.numpy as jnp
@@ -305,6 +328,12 @@ def _normal_shares(deal_points):
   ks = [k for k in sorted(deal_points) if k <= 3]
   total = sum(deal_points[k] for k in ks)
   return tuple(ks), tuple(deal_points[k] / total for k in ks)
+
+
+#: The points of a Normal game won, on average (DEAL_POINTS's 1, 2 and 3).
+NORMAL_MEAN = float(
+    sum(k * m for k, m in zip(*_normal_shares(DEAL_POINTS)))
+)
 
 
 def set_win_table(deal_points=None, set_points: int = SET_POINTS) -> np.ndarray:
@@ -578,8 +607,167 @@ def _clear_flecks(info):
   return out
 
 
+#: Deals the network's estimate counts for against played results (module
+#: doc, "Played results").
+PLAYED_PRIOR = 16.0
+#: The played-results table beside this module.
+PLAYED_TABLE = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "played_table.json"
+)
+PLAYED_SCHEMA = "schnaps-played-table/1"
+PLAYED_GAMES = (
+    "normal", "schnapser_caller", "schnapser_partner", "lomt", "bauern"
+)
+
+
+class PlayedTable:
+  """Played deals and wins per hand class and seat (module doc).
+
+  A game's entries are keyed by (((m0 * 32 + m1) * 32 + m2) * 32 + m3) * 4 +
+  seat, m0..m3 the hand's class key (`hand_keys`).
+
+  Attributes:
+    games: {game: (keys i32[N] ascending, n f32[N], wins f32[N])}.
+    source: the table's "source" record.
+  """
+
+  def __init__(self, games: Mapping[str, Mapping[str, Any]], source=None):
+    self.games = {}
+    for g in PLAYED_GAMES:
+      e = games.get(g) or {"keys": [], "n": [], "wins": []}
+      keys = np.asarray(e["keys"], np.int32)
+      order = np.argsort(keys, kind="stable")
+      self.games[g] = (
+          keys[order],
+          np.asarray(e["n"], np.float32)[order],
+          np.asarray(e["wins"], np.float32)[order],
+      )
+    self.source = dict(source or {})
+
+  def lookup(self, name: str, key: jax.Array) -> tuple[jax.Array, jax.Array]:
+    """(n, wins) f32[B] of game `name` at the keys i32[B]; 0 where unseen."""
+    keys, n, wins = self.games[name]
+    zeros = jnp.zeros(jnp.shape(key), jnp.float32)
+    if keys.size == 0:
+      return zeros, zeros
+    k = jnp.asarray(keys)
+    i = jnp.clip(jnp.searchsorted(k, key), 0, keys.size - 1)
+    hit = k[i] == key
+    return (
+        jnp.where(hit, jnp.asarray(n)[i], zeros),
+        jnp.where(hit, jnp.asarray(wins)[i], zeros),
+    )
+
+
+@functools.lru_cache(maxsize=None)
+def load_played_table(path: str = PLAYED_TABLE) -> Optional[PlayedTable]:
+  """The PlayedTable at `path`, or None when there is no such file.
+
+  Args:
+    path: a played_table.json.
+
+  Returns:
+    The table, or None.
+
+  Raises:
+    ValueError: the file has another schema.
+  """
+  if not os.path.exists(path):
+    return None
+  with open(path) as f:
+    data = json.load(f)
+  if data.get("schema") != PLAYED_SCHEMA:
+    raise ValueError(
+        f"{path}: schema {data.get('schema')!r} is not {PLAYED_SCHEMA}"
+    )
+  return PlayedTable(data["games"], data.get("source"))
+
+
+def hand_keys(info: Mapping[str, jax.Array]) -> tuple[jax.Array, jax.Array]:
+  """The hands' class keys as integers: (trump-marked, plain), i32[B].
+
+  The four suit rank masks (bit r = rank r held, Unter..As) packed in base
+  32: trump first and the other suits descending (marked), or all four
+  descending (plain, Lomt). As schnaps-web's success.class_key.
+
+  Args:
+    info: the InfoStates, leaves [B, ...].
+
+  Returns:
+    (marked, plain).
+  """
+  hand = jnp.asarray(info["hand"], jnp.int32)
+  b = hand.shape[0]
+  masks = jnp.sum(
+      hand.reshape(b, game.NUM_SUITS, game.NUM_RANKS)
+      << jnp.arange(game.NUM_RANKS, dtype=jnp.int32),
+      axis=-1,
+  )
+
+  def pack(ms):
+    k = ms[:, 0]
+    for j in range(1, game.NUM_SUITS):
+      k = k * 32 + ms[:, j]
+    return k
+
+  plain = pack(-jnp.sort(-masks, axis=-1))
+  trump = jnp.clip(jnp.asarray(info["trump"], jnp.int32), 0, game.NUM_SUITS - 1)
+  rows = jnp.arange(b)
+  others = jnp.where(
+      jnp.arange(game.NUM_SUITS) == trump[:, None], -1, masks
+  )
+  others = -jnp.sort(-others, axis=-1)[:, : game.NUM_SUITS - 1]
+  marked = pack(jnp.concatenate([masks[rows, trump][:, None], others], axis=1))
+  return marked, plain
+
+
+def played_results(
+    table: PlayedTable, info: Mapping[str, jax.Array], contract: int
+) -> tuple[jax.Array, jax.Array]:
+  """(n, wins) f32[B]: the bidder's pair's played deals in `contract`.
+
+  The Normal game: the bidder's pair winning it. A contract: the bidder
+  declaring it and making it (Schnapser only from seats 0 and 2).
+
+  Args:
+    table: the PlayedTable.
+    info: the bidders' InfoStates, leaves [B, ...].
+    contract: NORMAL, SCHNAPSER, LOMT or BAUERN.
+
+  Returns:
+    (n, wins).
+  """
+  seat = jnp.asarray(info["seat"], jnp.int32)
+  marked, plain = hand_keys(info)
+  if contract == game.NORMAL:
+    return table.lookup("normal", marked * 4 + seat)
+  if contract == game.SCHNAPSER:
+    nc, wc = table.lookup("schnapser_caller", marked * 4)
+    np_, wp = table.lookup("schnapser_partner", marked * 4 + 2)
+    zero = jnp.zeros_like(nc)
+    n = jnp.where(seat == 0, nc, jnp.where(seat == 2, np_, zero))
+    w = jnp.where(seat == 0, wc, jnp.where(seat == 2, wp, zero))
+    return n, w
+  if contract == game.LOMT:
+    return table.lookup("lomt", plain * 4)
+  if contract == game.BAUERN:
+    return table.lookup("bauern", marked * 4 + seat)
+  raise ValueError(f"no played results for contract {contract}")
+
+
+def _toward_played(v, points, n, wins, prior):
+  """v (the pair's points, won or lost `points`) moved to the played rate."""
+  p_net = jnp.clip((v / points + 1.0) / 2.0, 0.0, 1.0)
+  p = (wins + prior * p_net) / (n + prior)
+  return v + 2.0 * points * (p - p_net)
+
+
 def estimate(
-    info: Mapping[str, jax.Array], legal: jax.Array, value_fn: ValueFn
+    info: Mapping[str, jax.Array],
+    legal: jax.Array,
+    value_fn: ValueFn,
+    played: Optional[PlayedTable] = None,
+    prior: float = PLAYED_PRIOR,
 ) -> BidEstimates:
   """The BidEstimates of every row (module doc).
 
@@ -587,14 +775,21 @@ def estimate(
     info: the bidders' InfoStates, leaves [B, ...].
     legal: bool[B, 39].
     value_fn: the value function (ValueFn).
+    played: played results to move the bidder's own bids toward (module doc,
+      "Played results"); None keeps the value function's estimates.
+    prior: the deals the value function counts for (> 0).
 
   Returns:
     The BidEstimates.
   """
+  if played is not None and not prior > 0:
+    raise ValueError(f"the played-results prior must be > 0, got {prior}")
   seat = jnp.asarray(info["seat"], jnp.int32)
   b = seat.shape[0]
   points = jnp.asarray(game.CONTRACT_POINTS, jnp.float32)
   cf = jax.vmap(counterfactual)
+  if played is not None:
+    results = {c: played_results(played, info, c) for c in VALUED_CONTRACTS}
 
   value = jnp.full((b, NUM_ACTIONS), -jnp.inf, jnp.float32)
   stake = jnp.zeros((b, NUM_ACTIONS), jnp.float32)
@@ -607,7 +802,19 @@ def estimate(
   v_pass = value_fn(_clear_flecks(after), contract) * mult
   called = contract != game.NORMAL
   s_pass = jnp.where(called, points[contract] * mult, 0.0)
-  m_pass = jnp.asarray(after["declarer"], jnp.int32) % 2 == seat % 2
+  declarer = jnp.asarray(after["declarer"], jnp.int32)
+  m_pass = declarer % 2 == seat % 2
+  if played is not None:
+    # A Normal game, or the bidder's own contract.
+    n = jnp.zeros((b,), jnp.float32)
+    w = jnp.zeros((b,), jnp.float32)
+    for c in VALUED_CONTRACTS:
+      sel = (contract == c) & ((c == game.NORMAL) | (declarer == seat))
+      n = jnp.where(sel, results[c][0], n)
+      w = jnp.where(sel, results[c][1], w)
+    v_pass = _toward_played(
+        v_pass, jnp.where(called, s_pass, NORMAL_MEAN * mult), n, w, prior
+    )
   value = value.at[:, PASS].set(v_pass)
   stake = stake.at[:, PASS].set(s_pass)
   mine = mine.at[:, PASS].set(m_pass)
@@ -619,7 +826,10 @@ def estimate(
   for c in VALUED_CONTRACTS[1:]:
     a = call_action(c)
     after_c = cf(info, jnp.full((b,), a, jnp.int32))
-    value = value.at[:, a].set(value_fn(after_c, c))
+    v_c = value_fn(after_c, c)
+    if played is not None:
+      v_c = _toward_played(v_c, points[c], *results[c], prior)
+    value = value.at[:, a].set(v_c)
     stake = stake.at[:, a].set(points[c])
     mine = mine.at[:, a].set(True)
   # Calls that win at once.

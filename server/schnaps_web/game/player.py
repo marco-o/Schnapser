@@ -29,7 +29,8 @@ with four card-play networks and a bid rule (envs.schnaps_bidding):
 
   policy = SchnapsPlayerPolicy(
       parts={"normal": net, "schnapser": s, "lomt": l, "bauern": b},
-      rule="greedy", rule_kwargs={"margin": 0.0}, value_scale=3.0)
+      rule="greedy", rule_kwargs={"margin": 0.0}, value_scale=3.0,
+      played_prior=None)
   params = {"normal": pn, "schnapser": ps, "lomt": pl, "bauern": pb}
 
 schnaps-web: the parts may be different networks (the large player pairs
@@ -42,6 +43,13 @@ in-graph JAX policies; they are nested in arch_kwargs as {"arch_name",
 artifact (examples/schnaps_build_player.py writes one). value_scale is the
 factor from a network's value to game points (the networks trained on
 points / 3).
+
+played_prior: the bid estimates are moved toward the played results of
+the bidding module's table (bidding, "Played results"), the network
+counting as `played_prior` deals; None means bidding.PLAYED_PRIOR, and 0
+turns it off (as it is off when the table file is missing). It is recorded
+in arch_kwargs only when given, so artifacts built before it rebuild
+unchanged (and use the table).
 
 Every part is evaluated on every row (simple, not fast). Outputs:
 logits and aux of the routed part (aux also carries "bid_value",
@@ -88,6 +96,7 @@ class SchnapsPlayerPolicy(types.Policy):
       rule: str = "greedy",
       rule_kwargs: Optional[Mapping[str, Any]] = None,
       value_scale: float = 3.0,
+      played_prior: Optional[float] = None,
   ):
     if set(parts) != set(PART_NAMES):
       raise ValueError(f"parts must be {PART_NAMES}, got {sorted(parts)}")
@@ -107,6 +116,15 @@ class SchnapsPlayerPolicy(types.Policy):
     rule_kwargs = dict(rule_kwargs or {})
     self.rule = bidding.make_rule(rule, rule_kwargs)
     self.value_scale = float(value_scale)
+    self.played_prior = (
+        bidding.PLAYED_PRIOR if played_prior is None else float(played_prior)
+    )
+    if self.played_prior < 0:
+      raise ValueError(f"played_prior must be >= 0, got {played_prior}")
+    self.played = (
+        bidding.load_played_table() if self.played_prior > 0 else None
+    )
+    extra = {} if played_prior is None else {"played_prior": played_prior}
     normal = self.parts["normal"].spec
     self.spec = types.PolicySpec(
         game=schnaps.SchnapsEnv.name,
@@ -128,6 +146,7 @@ class SchnapsPlayerPolicy(types.Policy):
             rule=rule,
             rule_kwargs=rule_kwargs,
             value_scale=value_scale,
+            **extra,
         ),
     )
 
@@ -216,7 +235,11 @@ class SchnapsPlayerPolicy(types.Policy):
     # The hard rules (bidding.allowed_bids) hold whatever the rule.
     legal = bidding.allowed_bids(info, step.legal_mask)
     est = bidding.estimate(
-        info, legal, self.value_fn(params, carry, step, key)
+        info,
+        legal,
+        self.value_fn(params, carry, step, key),
+        self.played,
+        max(self.played_prior, 1e-9),
     )
     ctx = bidding.BidContext(
         info=info,
