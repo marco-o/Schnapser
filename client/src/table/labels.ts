@@ -2,7 +2,7 @@
 // (i18n/strings.ts). Seats are named by who sits there, never by a compass
 // point.
 
-import {contractName, type Lang, t} from '../i18n/strings.ts';
+import {botLabel, contractName, type Lang, t} from '../i18n/strings.ts';
 import type {Phase, SeatInfo} from '../net/api.ts';
 
 /** Table seats 0..3, clockwise; seats 0 and 2 are partners, so are 1 and 3. */
@@ -37,6 +37,36 @@ export function phaseLabel(lang: Lang, phase: Phase): string {
       return t(lang, 'phaseMatchOver');
     case 'closed':
       return t(lang, 'phaseClosed');
+  }
+}
+
+/** A rating change with its sign: "+16", "−9", "±0". */
+export function signed(n: number): string {
+  if (n > 0) return `+${n}`;
+  if (n < 0) return `−${-n}`;
+  return '±0';
+}
+
+/** A pair by its rating identities' names: "Anna & Bologna bot". */
+export function standingName(
+  lang: Lang,
+  players: ReadonlyArray<{readonly name: string; readonly bot: boolean}>,
+): string {
+  const [a, b] = players.map(p =>
+    p.bot ? t(lang, 'botNamed', {label: botLabel(lang, p.name)}) : p.name,
+  );
+  return t(lang, 'pairOf', {a: a ?? '', b: b ?? ''});
+}
+
+/** Why a set was not rated (server: table.UNRATED_*), in `lang`. */
+export function unratedText(lang: Lang, reason: string | null): string {
+  switch (reason) {
+    case 'seats changed':
+      return t(lang, 'unratedSeats');
+    case 'same pair':
+      return t(lang, 'unratedSamePair');
+    default:
+      return t(lang, 'unratedGuest');
   }
 }
 

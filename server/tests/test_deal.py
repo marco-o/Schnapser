@@ -163,3 +163,17 @@ def test_reveal_shows_every_hand(game):
   for entry in f["presentation"]["view"]["seats"]:
     assert entry["cards"] and None not in entry["cards"]
   assert f["presentation"]["actions"] == []
+
+
+def test_a_deal_that_ends_early_shows_every_hand_left(game):
+  early = 0
+  for seed in range(60):
+    d = _random_deal(game, seed % 4, seed)
+    left = d.frame(None, reveal=True)["presentation"]["view"]["seats"]
+    if not any(s["cards"] for s in left):
+      continue  # played to the last trick: nothing left to show
+    early += 1
+    for viewer in (None, 0, 1, 2, 3):
+      seats = d.frame(viewer)["presentation"]["view"]["seats"]
+      assert seats == left, (seed, viewer)
+  assert early > 0, "no random deal ended early"

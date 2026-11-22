@@ -7,18 +7,29 @@ import {type JSX, useEffect, useState} from 'react';
 
 import {SchnapsRenderer} from '../gui/games/schnaps/schnaps_renderer.tsx';
 import {LangContext, storedLang, useLang, useT} from '../i18n/lang.tsx';
-import {botLabel, type Key, type Params, serverError, t} from '../i18n/strings.ts';
+import {botLabel, type Key, type Lang, type Params, serverError, t} from '../i18n/strings.ts';
 import {
   api,
   ApiError,
+  forgetAccount,
   nickname,
+  player,
   setNickname,
+  setPlayer,
+  type SetRating,
   setToken,
   type TableSnapshot,
   tokenOf,
 } from '../net/api.ts';
 import {useTable} from '../net/use_table.ts';
-import {contractText, pairNames, phaseLabel, seatName} from './labels.ts';
+import {
+  contractText,
+  pairNames,
+  phaseLabel,
+  seatName,
+  signed,
+  unratedText,
+} from './labels.ts';
 import {ThrowBar, throwMark, ThrowNotice} from './throw_bar.tsx';
 
 export function TablePage({
@@ -66,17 +77,27 @@ export function TablePage({
     );
   }
 
+  // The account confirmed in this tab (lobby), else a guest's nickname.
   const sit = (seat: number) =>
     run(async () => {
+      const who = player();
       let name = nickname();
-      if (!name) {
+      if (!who && !name) {
         name = window.prompt(tr('nicknamePrompt'))?.trim() ?? '';
         if (!name) return;
         setNickname(name);
       }
-      const {token: t} = await api.sit(tableId, seat, name);
-      setToken(tableId, t);
-      setLocalToken(t);
+      try {
+        const {token: t} = await api.sit(tableId, seat, who ? {account: who} : {nickname: name});
+        setToken(tableId, t);
+        setLocalToken(t);
+      } catch (e) {
+        if (who && e instanceof ApiError && e.status === 401) {
+          forgetAccount(who.username);
+          setPlayer(undefined);
+        }
+        throw e;
+      }
     });
 
   const leave = (seat: number) =>
@@ -214,6 +235,9 @@ function Scoreboard({snapshot}: {readonly snapshot: TableSnapshot}): JSX.Element
   const m = snapshot.match;
   const lang = useLang();
   const tr = useT();
+  // Pair ratings show while every seat is a logged-in user or a bot.
+  const ratings = snapshot.ratings;
+  const rated = ratings !== undefined && ratings[0] !== null && ratings[1] !== null;
   return (
     <section className="site-card" aria-label={tr('score')}>
       <h2>{m ? tr('setOfThree', {n: m.setNumber}) : tr('score')}</h2>
@@ -223,6 +247,7 @@ function Scoreboard({snapshot}: {readonly snapshot: TableSnapshot}): JSX.Element
             <th>{tr('pair')}</th>
             <th>{tr('pointsToGo')}</th>
             <th>{tr('sets')}</th>
+            {rated && <th>{tr('colRating')}</th>}
           </tr>
         </thead>
         <tbody>
@@ -231,6 +256,7 @@ function Scoreboard({snapshot}: {readonly snapshot: TableSnapshot}): JSX.Element
               <td>{pairNames(lang, p, snapshot.seats)}</td>
               <td className="site-score__need">{m ? m.need[p] : 31}</td>
               <td>{m ? m.sets[p] : 0}</td>
+              {rated && <td className="site-score__rating">{ratings[p]}</td>}
             </tr>
           ))}
         </tbody>
@@ -366,11 +392,28 @@ function ResultBanner({
         <strong>{tr('setTo', {n: d.set_number, pair: pair(r.setWinner)})}</strong>
       )}
       {r.matchWinner !== null && <strong>{tr('matchTo', {pair: pair(r.matchWinner)})}</strong>}
+      {r.setWinner !== null && r.rating && (
+        <span className="site-result__rating">{setRatingText(lang, r.rating, pair)}</span>
+      )}
       {snapshot.phase === 'deal_over' && (
         <WaitControl snapshot={snapshot} tableId={tableId} token={token} run={run} />
       )}
     </div>
   );
+}
+
+/** A finished set's rating change ("Anna & Ron: 600 → 616 (+16) · …"), or
+ *  why it was not rated. */
+function setRatingText(lang: Lang, rating: SetRating, pair: (p: number) => string): string {
+  const {before, after} = rating;
+  if (!rating.rated || !before || !after) return unratedText(lang, rating.unrated);
+  return [0, 1]
+    .map(p => {
+      const from = before[p] ?? 0;
+      const to = after[p] ?? 0;
+      return t(lang, 'ratingMove', {pair: pair(p), from, to, delta: signed(to - from)});
+    })
+    .join(' · ');
 }
 
 /**

@@ -13,6 +13,7 @@ SETTINGS = config_lib.Settings()
 MODELS = {
     "basic": (SETTINGS.basic_model_dir, "scripts/build_model.sh"),
     "large": (SETTINGS.large_model_dir, "scripts/build_large.sh"),
+    "2a": (SETTINGS.mixed_model_dir, "scripts/build_mixed.sh"),
 }
 
 
@@ -46,13 +47,16 @@ def test_the_model_bids_with_the_set_aware_rule(bot):
   assert bot.rule is not None and bot.rule.name == "set_aware"
 
 
-def test_the_catalog_offers_both_players_when_built():
+def test_the_catalog_offers_every_player_when_built():
   if not all(os.path.isdir(os.path.join(m, "0")) for m, _ in MODELS.values()):
-    pytest.skip("both players must be built")
+    pytest.skip("every player must be built")
   catalog = bots_lib.make_bots(
-      SETTINGS.basic_model_dir, SETTINGS.large_model_dir
+      SETTINGS.basic_model_dir,
+      SETTINGS.large_model_dir,
+      SETTINGS.mixed_model_dir,
   )
   assert [(b.name, b.label) for b in catalog.values()] == [
-      ("basic", "Basic"),
-      ("large", "Large"),
+      ("basic", "Bologna"),
+      ("large", "Firenze"),
+      ("2a", "Verona"),
   ]

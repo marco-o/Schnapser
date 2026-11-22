@@ -4,15 +4,19 @@ A bot chooses a legal action for the game seat to move on a pyspiel state.
 Choosing may block (a network runs), so tables call it in a worker thread;
 each bot serialises its own calls.
 
-  * "basic" and "large": neural players (game/player.py), value-head bidding
+  * "basic" (Bologna) and "large" (Firenze): neural players (game/player.py), value-head bidding
     and one network per contract, loaded from models/basic_player and
     models/large_player (step 0). They differ in the Normal network: Basic
     has the compact CPU-trained one, Large the bigger GPU-trained one. Large
     is offered only when its model is built (scripts/build_large.sh).
+  * "2a" (Verona): the same bidder, but ONE network plays every contract
+    (game/player_one.py; step 2a, Docker/step2a-options.md), loaded from
+    models/mixed_player. Offered only when built (scripts/build_mixed.sh).
   * "random": a uniformly random legal move (tests; not offered by default).
 
 A new bot is one class with `name`, `label` and `choose(state, seat)`, and
-one entry in `make_bots`.
+one entry in `make_bots`. The labels (what the site shows) are
+rating.BOT_LABELS; ratings go by `name`, so a label can change freely.
 """
 
 import random
@@ -20,6 +24,8 @@ import threading
 from typing import Optional, Protocol
 
 import pyspiel
+
+from schnaps_web import rating
 
 
 class Bot(Protocol):
@@ -79,7 +85,7 @@ class NeuralBot:
       model_dir: str,
       warmup: bool = True,
       name: str = "basic",
-      label: str = "Basic",
+      label: str = "Bologna",
   ):
     self.name = name
     self.label = label
@@ -94,8 +100,9 @@ class NeuralBot:
     from open_spiel.python.scale.core import x64
     from open_spiel.python.scale.envs import schnaps as schnaps_env
     from schnaps_web.game import player  # registers schnaps_web.player
+    from schnaps_web.game import player_one  # schnaps_web.player_one
     # pylint: enable=g-import-not-at-top
-    del player
+    del player, player_one
 
     x64.enable_x64()
     art = artifact.load_artifact(model_dir, 0)
@@ -169,6 +176,7 @@ class NeuralBot:
 def make_bots(
     basic_model_dir: str,
     large_model_dir: Optional[str] = None,
+    mixed_model_dir: Optional[str] = None,
     *,
     include_random: bool = False,
 ) -> dict:
@@ -178,6 +186,8 @@ def make_bots(
     basic_model_dir: the Basic player's artifact dir.
     large_model_dir: the Large player's artifact dir; left out when None or
       not built.
+    mixed_model_dir: the 2a player's artifact dir (one network for every
+      contract); left out when None or not built.
     include_random: also offer the random bot.
 
   Returns:
@@ -186,9 +196,14 @@ def make_bots(
   # pylint: disable-next=g-import-not-at-top
   from open_spiel.python.scale.ckpt import artifact
 
-  bots = {"basic": NeuralBot(basic_model_dir, name="basic", label="Basic")}
+  def neural(model_dir, name):
+    return NeuralBot(model_dir, name=name, label=rating.bot_label(name))
+
+  bots = {"basic": neural(basic_model_dir, "basic")}
   if large_model_dir and artifact.exists(large_model_dir, 0):
-    bots["large"] = NeuralBot(large_model_dir, name="large", label="Large")
+    bots["large"] = neural(large_model_dir, "large")
+  if mixed_model_dir and artifact.exists(mixed_model_dir, 0):
+    bots["2a"] = neural(mixed_model_dir, "2a")
   if include_random:
     bots["random"] = RandomBot()
   return bots

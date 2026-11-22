@@ -9,3 +9,6 @@ __pycache__/
 
 # The trained model (rebuilt with scripts/build_model.sh)
 models/
+
+# The site's database: accounts (password hashes), ratings, the set log
+data/db/

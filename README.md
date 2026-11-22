@@ -1,12 +1,45 @@
 # Schnaps web site
 
 A small site for playing Bauernschnapsen on the home network. Open it,
-enter a nickname, and then:
+say who you are (an account, or a guest nickname), and then:
 
 - **start a table**, or **take a free seat** at someone else's (also during
   a running match), or **watch** any table;
-- if you created the table, **fill seats** with the Basic or Large bot,
-  remove bots, and **start the match** once all four seats are filled.
+- if you created the table, **fill seats** with the Bologna, Firenze or Verona bot,
+  remove bots, and **start the match** once all four seats are filled;
+- see the **ratings** of every pair in the lobby.
+
+**Accounts and ratings:**
+
+- **Register** in the lobby with a username and a password (**Log in or
+  register**). The device then remembers the account: next time the lobby
+  only asks **Who's playing?** with one button per account on that device
+  (no password). A shared tablet can remember several accounts; **Log out**
+  forgets one on that device.
+- **Guests** still play with just a nickname, unrated. A guest can't use a
+  registered username.
+- **Pairs are rated, not players** (Elo). A pair is two players, whatever
+  their seats; bots count by their kind ("Anna & Bologna bot", "Verona bot
+  & Verona bot"), never by the first names they get at a table, so all
+  Verona + Verona pairs are one pair. Every pair starts at **600**.
+- **Each set changes the ratings.** The winners gain and the losers drop
+  32 × (1 − E), where E = 1 / (1 + 10^((loser − winner) / 400)) is the
+  winners' expected score: 16 points between equal pairs, more for an
+  upset.
+- **A set counts only if** every seat had the same logged-in user or bot
+  for the whole set, and the two pairs differ (Verona + Verona against
+  Verona + Verona doesn't count). Tables with only bots count too.
+- **Where you see it:** the lobby's **Ratings** list (best first, won–lost
+  sets, "Only my pairs"), each table's pair ratings in the lobby and on the
+  scoreboard, and the change ("600 → 616 (+16)") or why a set wasn't rated
+  in the result when a set ends.
+- **The database** is three small files in `data/db/` (not in git):
+  `users.json` (usernames, salted PBKDF2 password hashes, hashes of the
+  device keys), `ratings.json` (each pair's rating and won–lost), and
+  `sets.jsonl`, one line per finished set: the table, the match, the four
+  players, every deal of the set, the winner and the rating change. The
+  ratings can be rebuilt from that log (`Db.rebuild_ratings` in
+  `server/schnaps_web/db.py`).
 
 **How a match runs:**
 
@@ -41,14 +74,21 @@ enter a nickname, and then:
   ~/schnaps_forced_measure_bauern.json ~/schnaps_forced_measure_schnapser_r2.json`.
   Jodler and Hermort have no table (they win at once).
 - **Bots** get a random Harry Potter first name, a different one per seat;
-  the seat list says which bot it is ("Hermione (Large bot)").
+  the seat list says which bot it is ("Hermione (Firenze bot)").
 - **20 and 40:** a declaration shows on the green table over the trick it
   leads ("Anna: 40 ♥ Herz"), and next to the player's name for the rest of
   the deal.
-- **Two bots: Basic and Large.** They share the bidder and the
+- **Three bots: Bologna, Firenze and Verona** (in the code and the docs:
+  Basic, Large and 2a). Bologna and Firenze share the bidder and the
   Schnapser, Lomt and Bauern networks. They differ in the Normal-game
-  network: Basic has the compact one trained on the laptop, Large the bigger
-  one trained on a rented GPU (Docker/gpu-training.md, step 4).
+  network: Bologna has the compact one trained on the laptop, Firenze the
+  bigger one trained on a rented GPU (Docker/gpu-training.md, step 4).
+  Verona has the same bidder, but ONE network, trained on a GPU on every
+  contract at once, plays the cards in every game (step 2a,
+  Docker/step2a-options.md). Over full deals Verona beat Firenze by +0.20
+  ± 0.05 points per deal.
+- **When a deal ends early** (a Jodler or Hermort lost, a Schnapser that
+  missed a trick, a resignation) everyone sees the cards still in hand.
 - **Both bots bid with the set in mind.** It values a bid only by
   the points that still count for the set. It flecks only when the fleck
   can't cost the set (the other side needs no more points than the contract
@@ -58,9 +98,9 @@ enter a nickname, and then:
 - **Disconnects:** the table waits for the player to come back. Reloading
   the page, or reopening it in the same browser, returns you to your seat.
 
-Your seat is protected by a private token kept in your browser. On the
-main port (8000) nobody, including spectators, can see another player's
-cards.
+Your seat is protected by a private token kept in your browser (an
+account only decides which name you sit down with). On the main port
+(8000) nobody, including spectators, can see another player's cards.
 
 **The all-cards watch port (8001).** <http://localhost:8001> shows the same
 lobby and tables, read-only, with **every hand face up**. Nothing can be
@@ -85,13 +125,19 @@ Everything runs in the WSL distro **Ubuntu**, from PowerShell.
    wsl -d Ubuntu -- bash /mnt/c/Users/marco/Documents/git/Docker/schnaps-web/scripts/build_client.sh
    ```
 
-3. **Start the site.** It takes about a minute while the Basic and Large
+3. **Start the site.** It takes about a minute while the three
    players load and compile. Then open <http://localhost:8000> (and the
    all-cards watch page on <http://localhost:8001>). Ctrl-C stops it.
 
    ```powershell
    wsl -d Ubuntu -- bash /mnt/c/Users/marco/Documents/git/Docker/schnaps-web/scripts/start_site.sh
    ```
+
+   Accounts and ratings are kept in `data/db/` (created on first use) and
+   survive restarts. `SCHNAPS_WEB_DB_DIR=<dir>` keeps them elsewhere; an
+   empty value keeps them in memory only. To start the ratings over, stop
+   the site and delete `data/db/ratings.json` and `data/db/sets.jsonl`
+   (deleting `users.json` removes the accounts too).
 
 The Basic player is in `models/basic_player`. To rebuild it from the
 trained networks in `~`, run `scripts/build_model.sh --overwrite`. It uses:
@@ -108,6 +154,13 @@ The Large player is in `models/large_player`: `scripts/build_large.sh
 --overwrite` builds it with the same parts except the Normal network,
 `~/schnaps_normal_big_gpu@1000` (`LARGE_NORMAL=<dir>@<step>` picks another).
 The site offers Large only when that folder is built.
+
+The 2a player is in `models/mixed_player`: `scripts/build_mixed.sh
+--overwrite` builds it from `~/schnaps_mixed_big_gpu@500`, the one network
+of step 2a (`MIXED_NET=<dir>@<step>` picks another checkpoint). It loads
+as arch `schnaps_web.player_one` (`game/player_one.py`): the site player,
+with the same network in all four parts, run once per move. The site
+offers 2a only when that folder is built.
 
 Settings are environment variables `SCHNAPS_WEB_<NAME>`, for example
 `SCHNAPS_WEB_BOT_DELAY=0.5` (seconds before each bot move),
@@ -148,9 +201,11 @@ netsh interface portproxy delete v4tov4 listenport=8000 listenaddress=0.0.0.0
 Remove-NetFirewallRule -DisplayName "Schnaps site"
 ```
 
-The site has no passwords; anyone on your network can open it. Keep the
-firewall rule on the **Private** profile, so it applies only on your home
-network.
+Anyone on your network can open the site and play as a guest; the
+account passwords only protect names and ratings (the site uses plain
+HTTP, so they are not secret on the network: don't reuse a real
+password). Keep the firewall rule on the **Private** profile, so it
+applies only on your home network.
 
 **On a phone, hold it sideways.** In landscape (any screen at most 500 px
 tall) the felt fills the screen under a slim header and scales to fit, down
@@ -176,6 +231,12 @@ They cover:
   (`tests/test_app.py`);
 - each table's language: Italian by default, carried to the lobby list,
   players, spectators and the watch app (`tests/test_lang.py`);
+- accounts, device keys, the database files, Elo, which sets are rated
+  (guests, seat changes, the same pair), the set log and a rated bots-only
+  match (`tests/test_ratings.py`);
+- the accounts a device remembers and who plays in a tab
+  (`client/src/net/accounts.test.ts`), rating labels and the account
+  errors (`client/src/table/labels.test.ts`);
 - the translation table (`client/src/i18n/strings.test.ts`, run with
   `node --test`; `test.sh` runs it after the server tests when it gets no
   arguments): every string in every language with the same parameters, the
@@ -222,21 +283,24 @@ missing ones), and add it to `LANGS` in `server/schnaps_web/table.py`.
 server/schnaps_web/
   app.py        FastAPI: REST API, a WebSocket per table, serves client/dist
   lobby.py      the tables (in memory: they are gone when the server restarts)
-  table.py      seats, tokens, the life cycle, the bot driver
+  table.py      seats, tokens, the life cycle, the bot driver, rating sets
   match.py      sets, matches, dealer and seat mapping (pure)
+  rating.py     pair keys and Elo (pure)
+  db.py         users, pair ratings and the set log, as files in data/db/
   deal.py       one deal on the pyspiel engine; each seat's view
-  bots.py       the bot catalog (Basic, Large; Random for tests)
+  bots.py       the bot catalog (Bologna, Firenze, Verona; Random for tests)
   config.py     settings
   game/         copied from the development tree (see below)
   tools/        build_player.py: assembles a player in models/
 client/src/
   i18n/         every string in Italian, German and English; the lookup
-  lobby/        the lobby page (with the language picker)
+  lobby/        the lobby page (language picker, player card, ratings)
   table/        the table page: scoreboard, seats, result, score sheet
-  net/          REST calls and the table's WebSocket
+  net/          REST calls, the table's WebSocket, remembered accounts
   gui/          the table UI, copied from the OpenSpiel GUI
 models/basic_player/    the Basic player (four networks plus the bidder)
 models/large_player/    the Large player (the bigger Normal network)
+models/mixed_player/    the 2a player (one network for every contract)
 scripts/        install, build, start, test
 ```
 
@@ -291,6 +355,7 @@ licence headers.
 | `client/src/gui/` | `gui/src/games/schnaps/`, `gui/src/cards/`, and the helpers they use. The renderer takes nicknames and draws your seat at the bottom |
 | `models/basic_player/` | built from `~/schnaps_normal@4000`, `~/schnaps_forced_{lomt,bauern}@1000` and `~/schnaps_forced_schnapser_r2@500` |
 | `models/large_player/` | the same, with `~/schnaps_normal_big_gpu@1000` for the Normal game |
+| `models/mixed_player/` | built from `~/schnaps_mixed_big_gpu@500` (step 2a), one network for every contract |
 
 Still used as installed libraries (not copied):
 
@@ -302,6 +367,8 @@ Both come from `Docker/open_spiel` (its venv and `build/python`).
 ## Not done yet
 
 - Elena as a selectable bot: one entry in `bots.py`.
-- Saving tables across restarts.
+- Saving tables across restarts (accounts and ratings are saved).
+- A real database (the JSON files are fine for a family LAN).
+- A history page from the set log (`data/db/sets.jsonl`).
 - Docker packaging.
 - Chat.

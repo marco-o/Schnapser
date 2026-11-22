@@ -88,6 +88,95 @@ export const STRINGS = {
   backToMySeat: {en: 'Back to my seat', de: 'Zurück zu meinem Platz', it: 'Torna al mio posto'},
   watch: {en: 'Watch', de: 'Zuschauen', it: 'Guarda'},
 
+  // Accounts (lobby/account.tsx).
+  player: {en: 'Player', de: 'Spieler', it: 'Giocatore'},
+  playingAs: {en: 'Playing as {name}', de: 'Du spielst als {name}', it: 'Giochi come {name}'},
+  playingAsGuest: {
+    en: 'Playing as a guest (unrated)',
+    de: 'Du spielst als Gast (ohne Wertung)',
+    it: 'Giochi come ospite (senza punteggio)',
+  },
+  whoIsPlaying: {en: "Who's playing?", de: 'Wer spielt?', it: 'Chi gioca?'},
+  playAsGuest: {
+    en: 'Someone else (guest)',
+    de: 'Jemand anderes (Gast)',
+    it: 'Qualcun altro (ospite)',
+  },
+  chooseWhoFirst: {
+    en: "Choose who's playing first.",
+    de: 'Wähle zuerst, wer spielt.',
+    it: 'Scegli prima chi gioca.',
+  },
+  switchPlayer: {en: 'Switch player', de: 'Spieler wechseln', it: 'Cambia giocatore'},
+  logOut: {en: 'Log out', de: 'Abmelden', it: 'Esci'},
+  logOutConfirm: {
+    en: 'Log {name} out on this device? Playing here again needs the password.',
+    de: '{name} auf diesem Gerät abmelden? Danach braucht es wieder das Passwort.',
+    it: 'Disconnettere {name} da questo dispositivo? Poi servirà di nuovo la password.',
+  },
+  guestHint: {
+    en: 'Guests play unrated. Log in or register to get a rating.',
+    de: 'Gäste spielen ohne Wertung. Melde dich an oder registriere dich für eine Wertung.',
+    it: 'Gli ospiti giocano senza punteggio. Accedi o registrati per avere un punteggio.',
+  },
+  logInOrRegister: {
+    en: 'Log in or register',
+    de: 'Anmelden oder registrieren',
+    it: 'Accedi o registrati',
+  },
+  username: {en: 'Username', de: 'Benutzername', it: 'Nome utente'},
+  password: {en: 'Password', de: 'Passwort', it: 'Password'},
+  logIn: {en: 'Log in', de: 'Anmelden', it: 'Accedi'},
+  register: {en: 'Register', de: 'Registrieren', it: 'Registrati'},
+  cancel: {en: 'Cancel', de: 'Abbrechen', it: 'Annulla'},
+  enterUserAndPassword: {
+    en: 'Enter a username and a password.',
+    de: 'Gib Benutzername und Passwort ein.',
+    it: 'Inserisci nome utente e password.',
+  },
+
+  // Ratings (lobby/ratings.tsx, the table's scoreboard and result).
+  ratings: {en: 'Ratings', de: 'Wertung', it: 'Classifica'},
+  ratingsIntro: {
+    en: 'Every pair starts at 600. Each set won or lost moves it (Elo): beating a stronger pair gains more.',
+    de: 'Jedes Paar beginnt mit 600. Jeder gewonnene oder verlorene Satz verändert die Wertung (Elo): ein Sieg gegen ein stärkeres Paar bringt mehr.',
+    it: 'Ogni coppia parte da 600. Ogni set vinto o perso la modifica (Elo): battere una coppia più forte rende di più.',
+  },
+  noRatings: {
+    en: 'No rated sets yet.',
+    de: 'Noch keine gewerteten Sätze.',
+    it: 'Ancora nessun set valutato.',
+  },
+  onlyMine: {en: 'Only my pairs', de: 'Nur meine Paare', it: 'Solo le mie coppie'},
+  colRating: {en: 'Rating', de: 'Wertung', it: 'Punteggio'},
+  colWonLost: {en: 'Won–lost', de: 'Gew.–verl.', it: 'Vinti–persi'},
+  botNamed: {en: '{label} bot', de: '{label}-Bot', it: 'bot {label}'},
+  ratingsLine: {
+    en: 'Ratings: {a} · {b}',
+    de: 'Wertung: {a} · {b}',
+    it: 'Punteggi: {a} · {b}',
+  },
+  ratingMove: {
+    en: '{pair}: {from} → {to} ({delta})',
+    de: '{pair}: {from} → {to} ({delta})',
+    it: '{pair}: {from} → {to} ({delta})',
+  },
+  unratedGuest: {
+    en: 'This set is not rated: not every player is logged in.',
+    de: 'Dieser Satz wird nicht gewertet: nicht alle Spieler sind angemeldet.',
+    it: "Questo set non è valutato: non tutti i giocatori hanno fatto l'accesso.",
+  },
+  unratedSeats: {
+    en: 'This set is not rated: the players changed during it.',
+    de: 'Dieser Satz wird nicht gewertet: die Spieler haben gewechselt.',
+    it: 'Questo set non è valutato: i giocatori sono cambiati durante il set.',
+  },
+  unratedSamePair: {
+    en: 'This set is not rated: the same pair on both sides.',
+    de: 'Dieser Satz wird nicht gewertet: auf beiden Seiten dasselbe Paar.',
+    it: 'Questo set non è valutato: la stessa coppia da entrambe le parti.',
+  },
+
   // Seats, pairs and phases (table/labels.ts).
   seatN: {en: 'Seat {n}', de: 'Platz {n}', it: 'Posto {n}'},
   seatChoice: {
@@ -157,8 +246,6 @@ export const STRINGS = {
   addBot: {en: '+ {label}', de: '+ {label}', it: '+ {label}'},
   removeBot: {en: 'Remove bot', de: 'Bot entfernen', it: 'Togli il bot'},
   leave: {en: 'Leave', de: 'Aufstehen', it: 'Alzati'},
-  botBasic: {en: 'Basic', de: 'Basis', it: 'Base'},
-  botLarge: {en: 'Large', de: 'Groß', it: 'Grande'},
   winPoint: {en: '{pair} win 1 point', de: '{pair} gewinnen 1 Punkt', it: '{pair} vincono 1 punto'},
   winPoints: {
     en: '{pair} win {n} points',
@@ -357,6 +444,56 @@ export const STRINGS = {
     de: 'Unbekannter Wurf (erlaubt: {kinds})',
     it: 'Giocata sconosciuta (ammesse: {kinds})',
   },
+  errUsernameRequired: {
+    en: 'a username is required',
+    de: 'Ein Benutzername ist nötig',
+    it: 'Serve un nome utente',
+  },
+  errUsernameTooLong: {
+    en: 'the username is longer than {n} characters',
+    de: 'Der Benutzername ist länger als {n} Zeichen',
+    it: 'Il nome utente supera {n} caratteri',
+  },
+  errUsernamePlus: {
+    en: 'a username may not contain +',
+    de: 'Ein Benutzername darf kein + enthalten',
+    it: 'Il nome utente non può contenere +',
+  },
+  errUsernameTaken: {
+    en: 'that username is taken',
+    de: 'Dieser Benutzername ist schon vergeben',
+    it: 'Questo nome utente è già preso',
+  },
+  errPasswordShort: {
+    en: 'the password needs at least {n} characters',
+    de: 'Das Passwort braucht mindestens {n} Zeichen',
+    it: 'La password deve avere almeno {n} caratteri',
+  },
+  errPasswordLong: {
+    en: 'the password is too long',
+    de: 'Das Passwort ist zu lang',
+    it: 'La password è troppo lunga',
+  },
+  errWrongLogin: {
+    en: 'wrong username or password',
+    de: 'Benutzername oder Passwort falsch',
+    it: 'Nome utente o password errati',
+  },
+  errUnknownAccount: {
+    en: 'unknown account; log in again',
+    de: 'Unbekanntes Konto; melde dich erneut an',
+    it: 'Account sconosciuto; accedi di nuovo',
+  },
+  errNameHasAccount: {
+    en: 'that name belongs to an account; log in to use it',
+    de: 'Dieser Name gehört zu einem Konto; melde dich an, um ihn zu verwenden',
+    it: 'Questo nome appartiene a un account; accedi per usarlo',
+  },
+  errAlreadySeated: {
+    en: 'you already have a seat at this table',
+    de: 'Du hast an diesem Tisch schon einen Platz',
+    it: 'Hai già un posto a questo tavolo',
+  },
 
   // cardthrowup (table/throw_bar.tsx, docs/cardthrowup.md): Show (the hand
   // open to the two opponents) and Resign.
@@ -512,15 +649,13 @@ export function actionText(
   return serverText;
 }
 
-const BOT_KEYS: Readonly<Record<string, Key>> = {
-  Basic: 'botBasic',
-  Large: 'botLarge',
-};
-
-/** A bot's kind as the server labels it ("Basic", "Large"), in `lang`. */
+/**
+ * A bot's kind as the server labels it ("Bologna", "Firenze", "Verona"), in
+ * `lang`. The names are cities, the same in every language.
+ */
 export function botLabel(lang: Lang, label: string): string {
-  const key = BOT_KEYS[label];
-  return key === undefined ? label : t(lang, key);
+  void lang;
+  return label;
 }
 
 // ---- Server error messages. ----

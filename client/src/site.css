@@ -180,6 +180,36 @@ body {
   background: var(--color-accent-soft);
 }
 
+.site-score__rating,
+.site-ratings__value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+/* The lobby's player card (lobby/account.tsx) and ratings (lobby/ratings.tsx). */
+.site-account p {
+  margin: 8px 0 0;
+}
+
+.site-account__more {
+  margin-top: 10px;
+}
+
+.site-ratings tr[data-mine='true'] {
+  background: var(--color-accent-soft);
+}
+
+.site-check {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.site-table__ratings {
+  margin: 0 0 8px;
+}
+
 .site-seats {
   margin: 0;
   padding: 0;

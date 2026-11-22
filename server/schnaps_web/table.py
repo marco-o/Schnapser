@@ -20,7 +20,15 @@ opponents (`show`), and resign (`throw`), which ends the deal
 (docs/cardthrowup.md). Bots never show and never resign.
 
 Privacy: a connection's view is chosen by its token (the seat it holds);
-without one it is a spectator's. Nobody is ever sent another seat's hand.
+without one it is a spectator's. Nobody is ever sent another seat's hand while the deal is on; once it is
+over the cards left show to everyone (game.view.present).
+
+Accounts and ratings (db.py, rating.py): a human sits either as a logged-in
+user (Seat.user) or as a guest with a nickname; a guest may not take a
+registered username. A user holds at most one seat per table. When a set
+ends it is logged with all its deals; it is rated (both pairs' Elo
+changes) only if every seat had the same identity (a user or a bot kind,
+no guest, no empty seat) for the whole set and the two pairs differ.
 
 Every change is pushed to every connection as a snapshot (`snapshot`). Bot
 moves are played by one driver task per table, with settings.bot_delay
@@ -39,8 +47,16 @@ import pyspiel
 from schnaps_web import config as config_lib
 from schnaps_web import deal as deal_lib
 from schnaps_web import match as match_lib
+from schnaps_web import rating as rating_lib
 
 NAME_MAX = 20
+
+NAME_HAS_ACCOUNT = "that name belongs to an account; log in to use it"
+
+# Why a finished set was not rated (Table._rate_set; the log's "unrated").
+UNRATED_GUEST = "guest"  # a guest or an empty seat
+UNRATED_SEATS = "seats changed"  # someone else sat in during the set
+UNRATED_SAME_PAIR = "same pair"  # e.g. Basic+Basic against Basic+Basic
 
 # The languages a table can show (the client translates; i18n/strings.ts).
 LANGS = ("it", "de", "en")
@@ -99,12 +115,15 @@ class Seat:
     name: the player's nickname or the bot's name (from BOT_NAMES).
     token: the human's seat token.
     bot: the bot's catalog name.
+    user: the human's rating identity (rating.user_id) when logged in;
+      None for a guest.
   """
 
   kind: str = "empty"
   name: str = ""
   token: Optional[str] = None
   bot: Optional[str] = None
+  user: Optional[str] = None
 
 
 @dataclasses.dataclass(eq=False)
@@ -146,7 +165,9 @@ class Table:
       game: pyspiel.Game,
       rng: Optional[random.Random] = None,
       lang: Optional[str] = None,
+      db: Any = None,
   ):
+    """`db`: the site's db.Db (users, ratings, the log); None: no ratings."""
     self.id = table_id
     self.name = clean_name(name, "table name")
     self.lang = clean_lang(lang)
@@ -165,6 +186,10 @@ class Table:
     self._creator: Optional[str] = None
     self._listeners: set[Listener] = set()
     self._task: Optional[asyncio.Task] = None
+    self._db = db
+    self._match_id: Optional[str] = None
+    # The lineups (identity per seat) seen during the current set.
+    self._set_lineups: set[tuple[Optional[str], ...]] = set()
 
   # -- who is who ------------------------------------------------------------
 
@@ -198,15 +223,55 @@ class Table:
       return False
     return any(l.token == s.token for l in self._listeners)
 
+  def identity(self, seat: int) -> Optional[str]:
+    """The seat's rating identity: a user's, a bot kind's, or None (empty
+    or a guest)."""
+    s = self.seats[seat]
+    if s.kind == "human":
+      return s.user
+    if s.kind == "bot" and s.bot in self._bots:
+      return rating_lib.bot_id(s.bot)
+    return None
+
+  def lineup(self) -> tuple[Optional[str], ...]:
+    """Every seat's identity."""
+    return tuple(self.identity(i) for i in range(match_lib.NUM_SEATS))
+
+  def pair_ratings(self) -> list[Optional[int]]:
+    """Each pair's current rating, rounded; None when a seat has no
+    identity (or there is no database)."""
+    pairs = rating_lib.lineup_pairs(self.lineup())
+    if self._db is None or pairs is None:
+      return [None, None]
+    return [round(self._db.rating(k)) for k in pairs]
+
   # -- seats -----------------------------------------------------------------
 
-  def sit(self, seat: int, name: str, creator: bool = False) -> str:
-    """A human takes an empty seat; returns the new seat token."""
+  def sit(
+      self,
+      seat: int,
+      name: str,
+      creator: bool = False,
+      user: Optional[str] = None,
+  ) -> str:
+    """A human takes an empty seat; returns the new seat token.
+
+    `user`: the username when logged in (then `name` is it); None: a guest,
+    whose nickname may not be a registered username.
+    """
     s = self._seat(seat)
     if s.kind != "empty":
       raise TableError(f"seat {seat} is taken")
+    name = clean_name(name, "nickname")
+    ident = None
+    if user is not None:
+      ident = rating_lib.user_id(user)
+      if any(o.kind == "human" and o.user == ident for o in self.seats):
+        raise TableError("you already have a seat at this table")
+    elif self._db is not None and self._db.is_registered(name):
+      raise TableError(NAME_HAS_ACCOUNT)
     token = secrets.token_urlsafe(16)
-    self.seats[seat] = Seat("human", clean_name(name, "nickname"), token)
+    self.seats[seat] = Seat("human", name, token, user=ident)
     if creator:
       self._creator = token
     self._changed()
@@ -254,9 +319,12 @@ class Table:
       raise TableError("every seat must be filled first")
     self.match = match_lib.Match(dealer=self._rng.randrange(4))
     self.last_result = None
+    self._match_id = secrets.token_urlsafe(6)
+    self._set_lineups = set()
     self._new_deal()
 
   def _new_deal(self) -> None:
+    self._set_lineups.add(self.lineup())
     self.deal = deal_lib.Deal(self._game, self.match.dealer, self._rng)
     self.phase = "playing"
     self.waiting.clear()
@@ -351,15 +419,68 @@ class Table:
     out = self.match.record(
         res["returns"], res["contract"], res["declarer"], res["flecks"], throw
     )
+    self._set_lineups.add(self.lineup())
     self.last_result = {
         "deal": out["deal"].to_json(),
         "setWinner": out["set_winner"],
         "matchWinner": out["match_winner"],
+        "rating": None,
     }
+    if out["set_winner"] is not None:
+      self.last_result["rating"] = self._rate_set(
+          out["deal"].set_number, out["set_winner"]
+      )
+      self._set_lineups = set()
     self.phase = "match_over" if out["match_winner"] is not None else "deal_over"
     self.waiting.clear()
     self._next_deal_at = time.monotonic() + self._settings.deal_pause
     self._changed()
+
+  def _rate_set(self, set_number: int, winner: int) -> Optional[dict]:
+    """Logs the set that just ended and rates it when it counts.
+
+    Returns what the result overlay shows: {"rated", "unrated" (why not,
+    or None), "before": [r0, r1], "after": [r0, r1]} (ratings rounded;
+    None without a rating), or None without a database.
+    """
+    if self._db is None:
+      return None
+    lineup = self.lineup()
+    pairs = rating_lib.lineup_pairs(lineup)
+    if any(None in l for l in self._set_lineups):
+      unrated = UNRATED_GUEST
+    elif len(self._set_lineups) > 1:
+      unrated = UNRATED_SEATS
+    elif pairs is None:
+      unrated = UNRATED_GUEST
+    elif pairs[0] == pairs[1]:
+      unrated = UNRATED_SAME_PAIR
+    else:
+      unrated = None
+    entry = self._db.record_set({
+        "match": self._match_id,
+        "table": self.name,
+        "set": set_number,
+        "players": [
+            {"name": s.name, "kind": s.kind if s.kind != "human" or s.user
+             else "guest", "id": lineup[i]}
+            for i, s in enumerate(self.seats)
+        ],
+        "deals": [
+            d.to_json() for d in self.match.deals if d.set_number == set_number
+        ],
+        "winner": winner,
+        "sets": list(self.match.sets),
+        "pairs": list(pairs) if unrated is None else None,
+        "unrated": unrated,
+    })
+    r = entry["ratings"]
+    return {
+        "rated": r is not None,
+        "unrated": unrated,
+        "before": [round(x) for x in r["before"]] if r else None,
+        "after": [round(x) for x in r["after"]] if r else None,
+    }
 
   async def _drive(self) -> None:
     """Plays bot moves and moves between deals until a human must act."""
@@ -445,6 +566,7 @@ class Table:
         "seats": [self._seat_json(i, None) for i in range(4)],
         "need": list(self.match.need) if self.match else None,
         "sets": list(self.match.sets) if self.match else None,
+        "ratings": self.pair_ratings(),
     }
 
   def _seat_json(self, i: int, token: Optional[str]) -> dict:
@@ -456,6 +578,7 @@ class Table:
         "botLabel": self._bots[s.bot].label if s.bot in self._bots else None,
         "online": self.online(i),
         "you": s.kind == "human" and token is not None and s.token == token,
+        "account": s.kind == "human" and s.user is not None,
     }
 
   def snapshot(self, token: Optional[str], reveal: bool = False) -> dict:
@@ -477,6 +600,7 @@ class Table:
         "isCreator": self.is_creator(token),
         "seats": [self._seat_json(i, token) for i in range(4)],
         "match": self.match.to_json() if self.match else None,
+        "ratings": self.pair_ratings(),
         "dealer": self.deal.dealer if self.deal else None,
         "toMove": self.deal.to_move() if self.deal else None,
         "frame": self.deal.frame(seat, reveal) if self.deal else None,

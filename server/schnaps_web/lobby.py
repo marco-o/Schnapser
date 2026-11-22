@@ -7,6 +7,7 @@ from typing import Optional
 import pyspiel
 
 from schnaps_web import config as config_lib
+from schnaps_web import db as db_lib
 from schnaps_web import deal as deal_lib
 from schnaps_web import table as table_lib
 
@@ -23,19 +24,27 @@ class Lobby:
       bots: dict,
       settings: config_lib.Settings,
       rng: Optional[random.Random] = None,
+      db: Optional[db_lib.Db] = None,
   ):
     self.tables: dict[str, table_lib.Table] = {}
+    self.db = db if db is not None else db_lib.Db(settings.db_dir)
     self._bots = bots
     self._settings = settings
     self._game = pyspiel.load_game(deal_lib.GAME_STRING)
     self._rng = rng or random.Random()
 
   def create(
-      self, name: str, player: str, seat: int, lang: Optional[str] = None
+      self,
+      name: str,
+      player: str,
+      seat: int,
+      lang: Optional[str] = None,
+      user: Optional[str] = None,
   ) -> tuple[table_lib.Table, str]:
     """A new table with its creator at `seat`; returns (table, token).
 
     `lang`: the language the table shows (table.LANGS; None: Italian).
+    `user`: the creator's username when logged in (then `player` is it).
     """
     self._prune()
     if len(self.tables) >= self._settings.max_tables:
@@ -50,8 +59,9 @@ class Lobby:
         self._game,
         random.Random(self._rng.random()),
         lang=lang,
+        db=self.db,
     )
-    token = table.sit(seat, player, creator=True)
+    token = table.sit(seat, player, creator=True, user=user)
     self.tables[table_id] = table
     return table, token
 

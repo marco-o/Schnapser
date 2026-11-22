@@ -289,6 +289,10 @@ def present(
 ) -> dict[str, Json]:
   """The table, holding only the hands `viewer` may see.
 
+  schnaps-web: once the deal is over (terminal) every hand still held shows
+  to everyone, so a game that ended early (a Jodler or Hermort lost, a
+  Schnapser that missed a trick) can be read from the cards left.
+
   Args:
     state: the deal.
     viewer: the viewing game seat, or None for a spectator (no hand).
@@ -313,6 +317,7 @@ def present(
     return out
   if state.get_game().get_type().short_name != GAME:
     raise ValueError("The schnaps view was given another game.")
+  reveal = reveal or state.is_terminal()
   parsed = _Parsed(str(state))
   seats: list[Json] = []
   for seat in range(_NUM_SEATS):

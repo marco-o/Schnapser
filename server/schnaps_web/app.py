@@ -1,11 +1,22 @@
 """The web app: the lobby and table API, a WebSocket per table, the client.
 
-REST (JSON; a seat token goes in the X-Seat-Token header):
+REST (JSON; a seat token goes in the X-Seat-Token header, a logged-in
+device's key in X-User-Key):
 
+  POST   /api/accounts                      {username, password} -> {username, key}
+  POST   /api/login                         {username, password} -> {username, key}
+  GET    /api/me                            (X-User-Key) -> {username}
+  POST   /api/logout                        (X-User-Key) forget this device
+  GET    /api/ratings                       the rated pairs, best first
   GET    /api/bots                          the bot catalog
   GET    /api/tables                        the lobby's tables
   POST   /api/tables                        {name, player, seat} -> {id, token}
   POST   /api/tables/{id}/seats/{n}         {player} -> {token}: take a seat
+
+Creating a table or taking a seat with X-User-Key sits down as that user
+(no "player" needed); without it, as a guest with the nickname "player".
+A key the database does not know is refused (401), so the client can
+forget it.
   PUT    /api/tables/{id}/seats/{n}/bot     {bot}: the creator seats a bot
   DELETE /api/tables/{id}/seats/{n}         empty a seat (own, or a bot)
   POST   /api/tables/{id}/start             the creator starts a match
@@ -23,7 +34,8 @@ GET /api/site says which app this is ({"watch": false}).
 
 The watch app (create_watch_app, settings.watch_port, default 8001) shares
 the lobby but is read-only: GET /api/site ({"watch": true}), GET
-/api/tables and the WebSocket, which shows every hand to everyone.
+/api/tables, GET /api/ratings and the WebSocket, which shows every hand to
+everyone.
 
 Everything else serves the built client (client/dist), with index.html for
 the client's own routes.
@@ -40,6 +52,7 @@ from fastapi import staticfiles
 
 from schnaps_web import bots as bots_lib
 from schnaps_web import config as config_lib
+from schnaps_web import db as db_lib
 from schnaps_web import lobby as lobby_lib
 from schnaps_web import table as table_lib
 
@@ -53,7 +66,7 @@ def create_app(
   Args:
     settings: the settings (default: config.from_env()).
     bots: the bot catalog (default: bots.make_bots, which loads the Basic
-      and, when built, the Large player).
+      and, when built, the Large and 2a players).
 
   Returns:
     The FastAPI app.
@@ -61,7 +74,9 @@ def create_app(
   settings = settings or config_lib.from_env()
   if bots is None:
     bots = bots_lib.make_bots(
-        settings.basic_model_dir, settings.large_model_dir
+        settings.basic_model_dir,
+        settings.large_model_dir,
+        settings.mixed_model_dir,
     )
   lobby = lobby_lib.Lobby(bots, settings)
   app = fastapi.FastAPI(title="Schnaps")
@@ -73,12 +88,14 @@ def create_app(
     except KeyError:
       raise fastapi.HTTPException(404, "no such table") from None
 
-  def guarded(fn, *args):
+  db = lobby.db
+
+  def guarded(fn, *args, **kwargs):
     try:
-      return fn(*args)
+      return fn(*args, **kwargs)
     except table_lib.Forbidden as e:
       raise fastapi.HTTPException(403, str(e)) from None
-    except table_lib.TableError as e:
+    except (table_lib.TableError, db_lib.AccountError) as e:
       raise fastapi.HTTPException(400, str(e)) from None
 
   def body_field(body: Any, key: str):
@@ -86,9 +103,53 @@ def create_app(
       raise fastapi.HTTPException(400, f"missing {key!r}")
     return body[key]
 
+  def user_of(key: Optional[str]) -> Optional[str]:
+    """The username of a device key; None without one; 401 if unknown."""
+    if not key:
+      return None
+    user = db.user_of_key(key)
+    if user is None:
+      raise fastapi.HTTPException(401, "unknown account; log in again")
+    return user
+
+  def player_of(body: Any, key: Optional[str]) -> tuple[str, Optional[str]]:
+    """(name, username or None): the user of the key, else the nickname."""
+    user = user_of(key)
+    if user is not None:
+      return user, user
+    return body_field(body, "player"), None
+
   @app.get("/api/site")
   async def site():
     return {"watch": False}
+
+  @app.post("/api/accounts")
+  async def register(body: dict = fastapi.Body(...)):
+    name, key = guarded(
+        db.register, body_field(body, "username"), body_field(body, "password")
+    )
+    return {"username": name, "key": key}
+
+  @app.post("/api/login")
+  async def login(body: dict = fastapi.Body(...)):
+    name, key = guarded(
+        db.login, body_field(body, "username"), body_field(body, "password")
+    )
+    return {"username": name, "key": key}
+
+  @app.get("/api/me")
+  async def me(x_user_key: Optional[str] = fastapi.Header(None)):
+    user = user_of(x_user_key)
+    if user is None:
+      raise fastapi.HTTPException(401, "unknown account; log in again")
+    return {"username": user}
+
+  @app.post("/api/logout")
+  async def logout(x_user_key: Optional[str] = fastapi.Header(None)):
+    db.logout(x_user_key)
+    return {"ok": True}
+
+  _add_ratings(app, db)
 
   @app.get("/api/bots")
   async def list_bots():
@@ -99,20 +160,31 @@ def create_app(
     return lobby.summaries()
 
   @app.post("/api/tables")
-  async def create_table(body: dict = fastapi.Body(...)):
+  async def create_table(
+      body: dict = fastapi.Body(...),
+      x_user_key: Optional[str] = fastapi.Header(None),
+  ):
+    player, user = player_of(body, x_user_key)
     table, token = guarded(
         lobby.create,
         body_field(body, "name"),
-        body_field(body, "player"),
+        player,
         body.get("seat", 0),
         body.get("lang"),
+        user,
     )
     return {"id": table.id, "token": token}
 
   @app.post("/api/tables/{table_id}/seats/{seat}")
-  async def take_seat(table_id: str, seat: int, body: dict = fastapi.Body(...)):
+  async def take_seat(
+      table_id: str,
+      seat: int,
+      body: dict = fastapi.Body(...),
+      x_user_key: Optional[str] = fastapi.Header(None),
+  ):
     table = table_of(table_id)
-    return {"token": guarded(table.sit, seat, body_field(body, "player"))}
+    player, user = player_of(body, x_user_key)
+    return {"token": guarded(table.sit, seat, player, user=user)}
 
   @app.put("/api/tables/{table_id}/seats/{seat}/bot")
   async def seat_bot(
@@ -200,9 +272,18 @@ def create_watch_app(
   async def list_tables():
     return lobby.summaries()
 
+  _add_ratings(app, lobby.db)
   _add_socket(app, lobby, reveal=True)
   _add_client(app, settings)
   return app
+
+
+def _add_ratings(app: fastapi.FastAPI, db: db_lib.Db) -> None:
+  """GET /api/ratings: every rated pair, best first (db.Db.standings)."""
+
+  @app.get("/api/ratings")
+  async def ratings():
+    return db.standings()
 
 
 def _add_socket(app: fastapi.FastAPI, lobby: lobby_lib.Lobby, reveal: bool) -> None:
