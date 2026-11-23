@@ -12,6 +12,10 @@ each bot serialises its own calls.
   * "2a" (Verona): the same bidder, but ONE network plays every contract
     (game/player_one.py; step 2a, Docker/step2a-options.md), loaded from
     models/mixed_player. Offered only when built (scripts/build_mixed.sh).
+  * "napoli" (Napoli): determinized search for the card play
+    (game/search.py: samples the hidden hands consistent with what its seat
+    knows, solves each deal exactly, plays the best mean); the trump choice
+    and the bidding are Bologna's.
   * "random": a uniformly random legal move (tests; not offered by default).
 
 A new bot is one class with `name`, `label` and `choose(state, seat)`, and
@@ -173,12 +177,47 @@ class NeuralBot:
     return action
 
 
+class SearchBot:
+  """Searches the card play (game/search.py); another bot does the rest.
+
+  Args:
+    bidder: plays every move outside the card play (the trump choice and
+      the bidding).
+    n_samples: deals sampled per card-play decision.
+  """
+
+  def __init__(self, bidder, n_samples: int = 20, name: str = "napoli",
+               label: str = "Napoli", seed: int = 0):
+    from schnaps_web.game import search  # pylint: disable=g-import-not-at-top
+
+    self.name = name
+    self.label = label
+    self._bidder = bidder
+    self._searcher = search.Searcher(n_samples, seed)
+    self._lock = threading.Lock()
+
+  def choose(self, state: pyspiel.State, seat: int, set_need=None) -> int:
+    if not _in_play(state):
+      return self._bidder.choose(state, seat, set_need)
+    with self._lock:
+      action = self._searcher.decide(state, seat)
+    if action not in state.legal_actions():
+      raise ValueError(f"the {self.label} player chose an illegal move {action}")
+    return action
+
+
+def _in_play(state: pyspiel.State) -> bool:
+  """Whether the deal is in the card play (its text says "Phase: Play")."""
+  return any(line.strip() == "Phase: Play" for line in str(state).splitlines())
+
+
 def make_bots(
     basic_model_dir: str,
     large_model_dir: Optional[str] = None,
     mixed_model_dir: Optional[str] = None,
     *,
     include_random: bool = False,
+    search_samples: int = 50,
 ) -> dict:
   """The bot catalog: {name: Bot}.
 
@@ -189,6 +228,8 @@ def make_bots(
     mixed_model_dir: the 2a player's artifact dir (one network for every
       contract); left out when None or not built.
     include_random: also offer the random bot.
+    search_samples: deals Napoli samples per card-play decision (0 leaves
+      Napoli out).
 
   Returns:
     The catalog.
@@ -204,6 +245,10 @@ def make_bots(
     bots["large"] = neural(large_model_dir, "large")
   if mixed_model_dir and artifact.exists(mixed_model_dir, 0):
     bots["2a"] = neural(mixed_model_dir, "2a")
+  if search_samples > 0:
+    bots["napoli"] = SearchBot(
+        bots["basic"], search_samples, label=rating.bot_label("napoli")
+    )
   if include_random:
     bots["random"] = RandomBot()
   return bots

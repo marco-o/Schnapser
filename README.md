@@ -5,7 +5,7 @@ say who you are (an account, or a guest nickname), and then:
 
 - **start a table**, or **take a free seat** at someone else's (also during
   a running match), or **watch** any table;
-- if you created the table, **fill seats** with the Bologna, Firenze or Verona bot,
+- if you created the table, **fill seats** with the Bologna, Firenze, Verona or Napoli bot,
   remove bots, and **start the match** once all four seats are filled;
 - see the **ratings** of every pair in the lobby.
 
@@ -87,6 +87,15 @@ say who you are (an account, or a guest nickname), and then:
   contract at once, plays the cards in every game (step 2a,
   Docker/step2a-options.md). Over full deals Verona beat Firenze by +0.20
   ± 0.05 points per deal.
+- **Napoli searches instead of using a network for the cards.** At each
+  card it deals the cards it can't see 50 times, in ways that fit what it
+  knows (hand sizes, a declared pair's other card, who showed out of a
+  suit, who didn't beat or overtrump when they had to), solves each deal
+  exactly with all cards open, and plays the card with the best average
+  (game/search.py). It never looks at another hand. The trump choice and
+  the bidding are Bologna's. Its weakness: it plays as if everyone,
+  partner included, will know every hand after this card. It hasn't been
+  measured against the other bots yet.
 - **When a deal ends early** (a Jodler or Hermort lost, a Schnapser that
   missed a trick, a resignation) everyone sees the cards still in hand.
 - **Both bots bid with the set in mind.** It values a bid only by
@@ -288,7 +297,8 @@ server/schnaps_web/
   rating.py     pair keys and Elo (pure)
   db.py         users, pair ratings and the set log, as files in data/db/
   deal.py       one deal on the pyspiel engine; each seat's view
-  bots.py       the bot catalog (Bologna, Firenze, Verona; Random for tests)
+  bots.py       the bot catalog (Bologna, Firenze, Verona, Napoli; Random
+                for tests)
   config.py     settings
   game/         copied from the development tree (see below)
   tools/        build_player.py: assembles a player in models/
@@ -350,6 +360,7 @@ licence headers.
 | `server/schnaps_web/game/view.py` | `python/gui/adapters/schnaps_adapter.py` (as plain functions) |
 | `server/schnaps_web/game/bidding.py` | `python/scale/envs/schnaps_bidding.py` |
 | `server/schnaps_web/game/player.py` | `python/scale/envs/schnaps_player.py` (arch `schnaps_web.player`) |
+| `server/schnaps_web/game/search.py` | `python/scale/envs/schnaps_search.py`, reworked to read a pyspiel state through `game/oracle.py` |
 | `server/schnaps_web/game/elena.py` | `python/scale/envs/schnaps_elena.py`, policy only (arch `schnaps_web.elena`, not offered yet) |
 | `server/schnaps_web/tools/build_player.py` | `python/scale/examples/schnaps_build_player.py` |
 | `client/src/gui/` | `gui/src/games/schnaps/`, `gui/src/cards/`, and the helpers they use. The renderer takes nicknames and draws your seat at the bottom |

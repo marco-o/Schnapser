@@ -650,7 +650,7 @@ export function actionText(
 }
 
 /**
- * A bot's kind as the server labels it ("Bologna", "Firenze", "Verona"), in
+ * A bot's kind as the server labels it ("Bologna", "Napoli", ...), in
  * `lang`. The names are cities, the same in every language.
  */
 export function botLabel(lang: Lang, label: string): string {

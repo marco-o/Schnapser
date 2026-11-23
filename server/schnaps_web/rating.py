@@ -31,7 +31,9 @@ BOT = "b:"
 
 #: What each bot kind is called on the site (bots.py takes its labels from
 #: here). A kind missing here shows as itself.
-BOT_LABELS = {"basic": "Bologna", "large": "Firenze", "2a": "Verona"}
+BOT_LABELS = {
+    "basic": "Bologna", "large": "Firenze", "2a": "Verona", "napoli": "Napoli",
+}
 
 
 def user_id(username: str) -> str:

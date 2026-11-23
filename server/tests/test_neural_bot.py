@@ -59,4 +59,5 @@ def test_the_catalog_offers_every_player_when_built():
       ("basic", "Bologna"),
       ("large", "Firenze"),
       ("2a", "Verona"),
+      ("napoli", "Napoli"),
   ]

@@ -66,7 +66,7 @@ def create_app(
   Args:
     settings: the settings (default: config.from_env()).
     bots: the bot catalog (default: bots.make_bots, which loads the Basic
-      and, when built, the Large and 2a players).
+      and, when built, the Large and 2a players, plus the Napoli search bot).
 
   Returns:
     The FastAPI app.
@@ -77,6 +77,7 @@ def create_app(
         settings.basic_model_dir,
         settings.large_model_dir,
         settings.mixed_model_dir,
+        search_samples=settings.search_samples,
     )
   lobby = lobby_lib.Lobby(bots, settings)
   app = fastapi.FastAPI(title="Schnaps")

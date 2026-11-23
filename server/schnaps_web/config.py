@@ -22,6 +22,8 @@ class Settings:
       left out when it is not built.
     mixed_model_dir: the 2a player's artifact dir (step 0; one network for
       every contract); the bot is left out when it is not built.
+    search_samples: deals the Napoli bot samples per card-play decision
+      (0 leaves Napoli out).
     client_dir: the built client (client/dist), served at /.
     bot_delay: seconds a bot waits before each move, so people can follow.
     deal_pause: seconds the result of a deal stays up before the next one.
@@ -37,6 +39,7 @@ class Settings:
   basic_model_dir: str = os.path.join(_ROOT, "models", "basic_player")
   large_model_dir: str = os.path.join(_ROOT, "models", "large_player")
   mixed_model_dir: str = os.path.join(_ROOT, "models", "mixed_player")
+  search_samples: int = 50
   client_dir: str = os.path.join(_ROOT, "client", "dist")
   bot_delay: float = 0.8
   deal_pause: float = 5.0

@@ -19,7 +19,7 @@ export interface SeatInfo {
   readonly kind: 'empty' | 'human' | 'bot';
   readonly name: string;
   readonly bot: string | null;
-  /** The bot's kind as the site offers it ("Bologna", "Firenze", "Verona"). */
+  /** The bot's kind as the site offers it ("Bologna", "Firenze", "Verona", "Napoli"). */
   readonly botLabel?: string | null;
   readonly online: boolean;
   readonly you: boolean;
