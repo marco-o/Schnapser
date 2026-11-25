@@ -1,7 +1,9 @@
 """Accounts, pair ratings and the log of sets (db.py, rating.py, table.py)."""
 
+import dataclasses
 import json
 import random
+import sqlite3
 import time
 
 from fastapi import testclient
@@ -91,12 +93,42 @@ def test_the_files_survive_a_restart_and_keep_no_secrets(tmp_path):
   assert again.user_of_key(key) == "Anna"
   assert again.login("Anna", "secret")[0] == "Anna"
   assert again.rating("b:basic+u:anna") == 616.0
-  stored = (tmp_path / "users.json").read_text()
-  assert "secret" not in stored and key not in stored
-  assert sorted(p.name for p in tmp_path.iterdir()) == [
-      "ratings.json", "sets.jsonl", "users.json"]
-  line = json.loads((tmp_path / "sets.jsonl").read_text())
+  stored = (tmp_path / "schnaps.db").read_bytes()
+  assert b"secret" not in stored and key.encode() not in stored
+  assert sorted(p.name for p in tmp_path.iterdir()) == ["schnaps.db"]
+  (line,) = again.sets()
   assert line["deals"] == [{"number": 1}] and line["ratings"]["after"] == [616.0, 584.0]
+
+
+def test_the_json_files_from_before_sqlite_are_imported_once(tmp_path):
+  salt = bytes(range(16))
+  key_hash = db_lib._hash_key("old-device-key")
+  (tmp_path / "users.json").write_text(json.dumps({"users": {"anna": {
+      "name": "Anna", "created": "2026-11-20T10:00:00Z", "salt": salt.hex(),
+      "iterations": 1000, "hash": db_lib._hash_password("secret", salt, 1000),
+      "keys": [key_hash]}}}))
+  ab = "b:basic+u:anna"
+  (tmp_path / "ratings.json").write_text(json.dumps({"pairs": {ab: {
+      "members": ["b:basic", "u:anna"], "rating": 616.0, "won": 1, "lost": 0,
+      "last": "2026-11-21T10:00:00Z"}}}))
+  logged = [{"time": "2026-11-21T10:00:00Z", "table": "T", "match": "m1",
+             "pairs": [ab, "b:large+b:large"], "winner": 0,
+             "ratings": {"before": [600.0, 600.0], "after": [616.0, 584.0]}},
+            {"time": "2026-11-21T11:00:00Z", "pairs": None, "winner": 1,
+             "ratings": None, "unrated": "guest"}]
+  (tmp_path / "sets.jsonl").write_text(
+      "".join(json.dumps(e) + "\n" for e in logged))
+  db = db_lib.Db(str(tmp_path))
+  assert db.user_of_key("old-device-key") == "Anna"
+  assert db.login("anna", "secret")[0] == "Anna"
+  assert db.rating(ab) == 616.0
+  assert db.standings()[0]["players"][1] == {"name": "Anna", "bot": False}
+  assert db.sets() == logged
+  db.close()
+  # The JSON files stay as a backup, and a second start doesn't import again.
+  assert sorted(p.name for p in tmp_path.iterdir()) == [
+      "ratings.json", "schnaps.db", "sets.jsonl", "users.json"]
+  assert len(db_lib.Db(str(tmp_path)).sets()) == 2
 
 
 def test_standings_and_rebuilding_from_the_log(tmp_path):
@@ -113,7 +145,11 @@ def test_standings_and_rebuilding_from_the_log(tmp_path):
   assert top["players"] == [{"name": "Bologna", "bot": True}, {"name": "Anna", "bot": False}]
   assert top["rating"] + table[1]["rating"] == 1200
   before = {p["key"]: p["rating"] for p in table}
-  (tmp_path / "ratings.json").unlink()
+  db.close()
+  conn = sqlite3.connect(tmp_path / "schnaps.db")
+  with conn:
+    conn.execute("DELETE FROM pairs")
+  conn.close()
   fresh = db_lib.Db(str(tmp_path))
   assert fresh.standings() == []
   fresh.rebuild_ratings()
@@ -227,6 +263,31 @@ def test_seats_for_users_and_guests():
 def client():
   with testclient.TestClient(app_lib.create_app(FAST, _bots())) as c:
     yield c
+
+
+def test_the_rate_limit_counts_per_address_in_a_minute():
+  now = [0.0]
+  limit = app_lib.RateLimit(2, clock=lambda: now[0])
+  assert limit.allow("a") and limit.allow("a") and not limit.allow("a")
+  assert limit.allow("b")
+  now[0] = 59.0
+  assert not limit.allow("a")
+  now[0] = 61.0
+  assert limit.allow("a")
+  assert all(app_lib.RateLimit(0).allow("a") for _ in range(100))
+
+
+def test_login_and_register_are_rate_limited():
+  settings = dataclasses.replace(FAST, login_rate=3)
+  with testclient.TestClient(app_lib.create_app(settings, _bots())) as c:
+    anna = {"username": "Anna", "password": "secret"}
+    assert c.post("/api/accounts", json=anna).status_code == 200
+    assert c.post("/api/login", json=dict(anna, password="nope")).status_code == 400
+    assert c.post("/api/login", json=anna).status_code == 200
+    r = c.post("/api/login", json=anna)
+    assert r.status_code == 429 and r.json()["detail"] == app_lib.TOO_MANY_ATTEMPTS
+    assert c.post("/api/accounts", json={"username": "Ben", "password": "secret"}).status_code == 429
+    assert c.get("/api/me", headers={}).status_code == 401  # other routes aren't limited
 
 
 def test_account_api(client):

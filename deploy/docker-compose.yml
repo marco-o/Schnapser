@@ -1,0 +1,42 @@
+# The site on a public server: the schnaps-web image behind Caddy, which
+# gets the Let's Encrypt certificate and serves HTTPS on 80/443.
+#
+# On the server, in the folder holding this file and the Caddyfile:
+#   echo SCHNAPS_DOMAIN=schnaps.example.eu > .env
+#   mkdir -p data/db && sudo chown -R 1000:1000 data   # the image's user
+#   docker compose up -d
+#
+# The site's port is not published: only Caddy reaches it, on the compose
+# network. That is also why uvicorn may trust X-Forwarded-For from any
+# address there (FORWARDED_ALLOW_IPS), which the login rate limit needs to
+# see the visitor's address instead of Caddy's.
+
+services:
+  schnaps:
+    image: schnaps-web:latest
+    restart: unless-stopped
+    init: true
+    environment:
+      FORWARDED_ALLOW_IPS: "*"
+    volumes:
+      - ./data:/data                # data/db/schnaps.db
+    mem_limit: 3g
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on: [schnaps]
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"               # HTTP/3
+    environment:
+      SCHNAPS_DOMAIN: ${SCHNAPS_DOMAIN:?put SCHNAPS_DOMAIN=your.domain in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data            # certificates
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:

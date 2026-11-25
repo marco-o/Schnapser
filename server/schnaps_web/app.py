@@ -5,6 +5,8 @@ device's key in X-User-Key):
 
   POST   /api/accounts                      {username, password} -> {username, key}
   POST   /api/login                         {username, password} -> {username, key}
+         (both: 429 after settings.login_rate requests from one address
+         in 60 seconds, when login_rate is set)
   GET    /api/me                            (X-User-Key) -> {username}
   POST   /api/logout                        (X-User-Key) forget this device
   GET    /api/ratings                       the rated pairs, best first
@@ -43,8 +45,10 @@ the client's own routes.
   python -m schnaps_web.app        # both ports (serve)
 """
 
+import asyncio
 import os
-from typing import Any, Optional
+import time
+from typing import Any, Callable, Optional
 
 import fastapi
 from fastapi import responses
@@ -55,6 +59,44 @@ from schnaps_web import config as config_lib
 from schnaps_web import db as db_lib
 from schnaps_web import lobby as lobby_lib
 from schnaps_web import table as table_lib
+
+#: The 429 message (the client translates it: errTooManyAttempts).
+TOO_MANY_ATTEMPTS = "too many attempts; try again in a minute"
+
+
+class RateLimit:
+  """At most `per_minute` hits per client address in any 60 seconds.
+
+  Args:
+    per_minute: the limit; 0 or less: no limit.
+    clock: seconds, monotonic (tests pass their own).
+  """
+
+  WINDOW = 60.0
+  #: Addresses kept before old ones are dropped (a bound on memory).
+  MAX_ADDRESSES = 10_000
+
+  def __init__(self, per_minute: int, clock: Callable[[], float] = time.monotonic):
+    self._limit = per_minute
+    self._clock = clock
+    self._hits: dict[str, list[float]] = {}
+
+  def allow(self, who: str) -> bool:
+    """Counts a hit from `who`; False when it is over the limit."""
+    if self._limit <= 0:
+      return True
+    now = self._clock()
+    hits = [t for t in self._hits.get(who, ()) if now - t < self.WINDOW]
+    allowed = len(hits) < self._limit
+    if allowed:
+      hits.append(now)
+    self._hits[who] = hits
+    if len(self._hits) > self.MAX_ADDRESSES:
+      self._hits = {
+          k: v for k, v in self._hits.items()
+          if v and now - v[-1] < self.WINDOW
+      }
+    return allowed
 
 
 def create_app(
@@ -124,18 +166,25 @@ def create_app(
   async def site():
     return {"watch": False}
 
+  limit = RateLimit(settings.login_rate)
+
+  async def account_call(request: fastapi.Request, fn, body: Any):
+    """Rate-limits, then runs a register/login call off the event loop
+    (its PBKDF2 hash takes a while; the tables keep going meanwhile)."""
+    if not limit.allow(request.client.host if request.client else "?"):
+      raise fastapi.HTTPException(429, TOO_MANY_ATTEMPTS)
+    username = body_field(body, "username")
+    password = body_field(body, "password")
+    return await asyncio.to_thread(guarded, fn, username, password)
+
   @app.post("/api/accounts")
-  async def register(body: dict = fastapi.Body(...)):
-    name, key = guarded(
-        db.register, body_field(body, "username"), body_field(body, "password")
-    )
+  async def register(request: fastapi.Request, body: dict = fastapi.Body(...)):
+    name, key = await account_call(request, db.register, body)
     return {"username": name, "key": key}
 
   @app.post("/api/login")
-  async def login(body: dict = fastapi.Body(...)):
-    name, key = guarded(
-        db.login, body_field(body, "username"), body_field(body, "password")
-    )
+  async def login(request: fastapi.Request, body: dict = fastapi.Body(...)):
+    name, key = await account_call(request, db.login, body)
     return {"username": name, "key": key}
 
   @app.get("/api/me")

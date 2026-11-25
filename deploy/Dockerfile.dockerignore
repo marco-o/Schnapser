@@ -1,0 +1,26 @@
+# What deploy/Dockerfile may see of the build context (the Docker/ folder,
+# which holds schnaps-web/ and open_spiel/). Everything is left out, then
+# only what the image needs is let back in.
+*
+
+!open_spiel/pybind11
+!open_spiel/open_spiel
+
+!schnaps-web/client
+!schnaps-web/server/schnaps_web
+!schnaps-web/models
+!schnaps-web/deploy/requirements.txt
+
+# Never: git data, caches, local builds and installs, test data.
+**/.git
+**/__pycache__
+**/*.pyc
+**/node_modules
+schnaps-web/client/dist
+open_spiel/open_spiel/gui
+open_spiel/open_spiel/json/tests
+open_spiel/open_spiel/json/docs
+open_spiel/open_spiel/integration_tests
+open_spiel/open_spiel/colabs
+open_spiel/open_spiel/rust
+open_spiel/open_spiel/julia

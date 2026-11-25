@@ -494,6 +494,11 @@ export const STRINGS = {
     de: 'Du hast an diesem Tisch schon einen Platz',
     it: 'Hai già un posto a questo tavolo',
   },
+  errTooManyAttempts: {
+    en: 'too many attempts; try again in a minute',
+    de: 'Zu viele Versuche; versuch es in einer Minute noch einmal',
+    it: 'Troppi tentativi; riprova tra un minuto',
+  },
 
   // cardthrowup (table/throw_bar.tsx, docs/cardthrowup.md): Show (the hand
   // open to the two opponents) and Resign.

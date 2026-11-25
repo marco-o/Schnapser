@@ -1,0 +1,30 @@
+# HTTPS in front of the Schnaps site (deploy/docker-compose.yml). Caddy gets
+# and renews the Let's Encrypt certificate for SCHNAPS_DOMAIN by itself (the
+# domain's A/AAAA records must point at the server, ports 80 and 443 open),
+# redirects HTTP to HTTPS and passes WebSockets through.
+#
+# No access log: the seat token travels in the WebSocket URL's query string.
+
+{$SCHNAPS_DOMAIN} {
+	encode zstd gzip
+
+	# FastAPI's API docs are on by default; nobody needs them here.
+	@apidocs path /docs* /redoc* /openapi.json
+	respond @apidocs 404
+
+	request_body {
+		max_size 64KB
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+		X-Frame-Options "DENY"
+		-Server
+	}
+
+	# REST and the table WebSockets (/ws/tables/{id}). Caddy adds
+	# X-Forwarded-For, which the login rate limit reads.
+	reverse_proxy schnaps:8000
+}

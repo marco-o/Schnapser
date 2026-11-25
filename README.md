@@ -33,13 +33,20 @@ say who you are (an account, or a guest nickname), and then:
   sets, "Only my pairs"), each table's pair ratings in the lobby and on the
   scoreboard, and the change ("600 → 616 (+16)") or why a set wasn't rated
   in the result when a set ends.
-- **The database** is three small files in `data/db/` (not in git):
-  `users.json` (usernames, salted PBKDF2 password hashes, hashes of the
-  device keys), `ratings.json` (each pair's rating and won–lost), and
-  `sets.jsonl`, one line per finished set: the table, the match, the four
-  players, every deal of the set, the winner and the rating change. The
-  ratings can be rebuilt from that log (`Db.rebuild_ratings` in
-  `server/schnaps_web/db.py`).
+- **The database** is one SQLite file, `data/db/schnaps.db` (not in git),
+  with four tables: `users` (usernames, salted PBKDF2 password hashes),
+  `device_keys` (hashes of the device keys), `pairs` (each pair's rating
+  and won–lost) and `sets`, one row per finished set: the table, the match,
+  the four players, every deal of the set, the winner and the rating
+  change, as JSON. A set's row and its rating change are written in one
+  transaction. The ratings can be rebuilt from the sets (`Db.rebuild_ratings`
+  in `server/schnaps_web/db.py`). Keep the file on a local disk, not a
+  network share.
+- **From the JSON files:** the database used to be `users.json`,
+  `ratings.json` and `sets.jsonl` in the same folder. On the first start
+  without `schnaps.db` they are imported once (accounts, device keys,
+  ratings and the set log, so nobody has to log in again); afterwards
+  they are left alone as a backup.
 
 **How a match runs:**
 
@@ -145,8 +152,22 @@ Everything runs in the WSL distro **Ubuntu**, from PowerShell.
    Accounts and ratings are kept in `data/db/` (created on first use) and
    survive restarts. `SCHNAPS_WEB_DB_DIR=<dir>` keeps them elsewhere; an
    empty value keeps them in memory only. To start the ratings over, stop
-   the site and delete `data/db/ratings.json` and `data/db/sets.jsonl`
-   (deleting `users.json` removes the accounts too).
+   the site and empty the two tables (accounts stay):
+
+   ```powershell
+   wsl -d Ubuntu -- python3 -c "import sqlite3; c = sqlite3.connect('/mnt/c/Users/marco/Documents/git/Docker/schnaps-web/data/db/schnaps.db'); c.executescript('DELETE FROM pairs; DELETE FROM sets;')"
+   ```
+
+   Deleting `schnaps.db` removes the accounts too. If the old JSON files
+   are still next to it, the next start imports them again, so move them
+   away first.
+
+   To back the database up while the site runs, use SQLite's own copy
+   (a plain file copy can catch a write half done):
+
+   ```powershell
+   wsl -d Ubuntu -- python3 -c "import sqlite3; sqlite3.connect('/mnt/c/Users/marco/Documents/git/Docker/schnaps-web/data/db/schnaps.db').backup(sqlite3.connect('/mnt/c/Users/marco/Documents/schnaps-backup.db'))"
+   ```
 
 The Basic player is in `models/basic_player`. To rebuild it from the
 trained networks in `~`, run `scripts/build_model.sh --overwrite`. It uses:
@@ -174,7 +195,62 @@ offers 2a only when that folder is built.
 Settings are environment variables `SCHNAPS_WEB_<NAME>`, for example
 `SCHNAPS_WEB_BOT_DELAY=0.5` (seconds before each bot move),
 `SCHNAPS_WEB_DEAL_PAUSE=5` or `SCHNAPS_WEB_PORT=8000`. The full list is in
-`server/schnaps_web/config.py`.
+`server/schnaps_web/config.py`. `SCHNAPS_WEB_LOGIN_RATE=10` allows at most
+10 logins or registrations per address in any minute (more get "too many
+attempts"); it is off (0) unless set, as on the LAN.
+
+## The Docker image (for a public server)
+
+`deploy/` packages the site for a server on the internet
+(docs/hosting-options.md has the options, prices and reasons):
+
+- `deploy/Dockerfile`: one image with the built client, pyspiel compiled
+  from the local `Docker/open_spiel` tree (uncommitted changes included),
+  the models and the server. It serves plain HTTP on 8000; the watch app
+  (8001) is off, at most 8 tables, at most 10 logins per address and
+  minute. The database is `/data/db/schnaps.db` in the `/data` volume.
+- `deploy/Dockerfile.dockerignore`: the only files the build sees.
+- `deploy/docker-compose.yml` and `deploy/Caddyfile`: the image behind
+  Caddy, which gets the Let's Encrypt certificate and serves HTTPS.
+
+**Build** (Docker Desktop running; about 15 minutes the first time, while
+pyspiel compiles), from `schnaps-web/` in PowerShell. The build context is
+the parent folder, so it sees `open_spiel/` too:
+
+```powershell
+docker build -f deploy/Dockerfile -t schnaps-web ..
+```
+
+**Try it on the laptop** (its own database in a Docker volume, not
+`data/db`; the bots load for about a minute and a half), then open
+<http://localhost:8000>:
+
+```powershell
+docker run --rm -p 8000:8000 -v schnaps-data:/data schnaps-web
+```
+
+Don't run it on port 8000 while `start_site.sh` is running, and never point
+two sites at the same `schnaps.db`.
+
+**On the server** (a Linux VPS with Docker): copy the image and the two
+files, set the domain, start. The domain's DNS must point at the server,
+with ports 80 and 443 open.
+
+```powershell
+docker save schnaps-web | ssh user@server docker load
+scp deploy/docker-compose.yml deploy/Caddyfile user@server:schnaps/
+```
+
+```bash
+cd ~/schnaps
+echo SCHNAPS_DOMAIN=schnaps.example.eu > .env
+mkdir -p data/db && sudo chown -R 1000:1000 data
+docker compose up -d
+```
+
+To keep the laptop's accounts and ratings, stop the site and copy
+`data/db/schnaps.db` to the server's `schnaps/data/db/` before the first
+start.
 
 ## Playing from other devices on the LAN
 
@@ -240,9 +316,10 @@ They cover:
   (`tests/test_app.py`);
 - each table's language: Italian by default, carried to the lobby list,
   players, spectators and the watch app (`tests/test_lang.py`);
-- accounts, device keys, the database files, Elo, which sets are rated
-  (guests, seat changes, the same pair), the set log and a rated bots-only
-  match (`tests/test_ratings.py`);
+- accounts, device keys, the database file and the one-time import of
+  the old JSON files, Elo, which sets are rated (guests, seat changes, the
+  same pair), the set log, a rated bots-only match and the login rate limit
+  (`tests/test_ratings.py`);
 - the accounts a device remembers and who plays in a tab
   (`client/src/net/accounts.test.ts`), rating labels and the account
   errors (`client/src/table/labels.test.ts`);
@@ -295,7 +372,7 @@ server/schnaps_web/
   table.py      seats, tokens, the life cycle, the bot driver, rating sets
   match.py      sets, matches, dealer and seat mapping (pure)
   rating.py     pair keys and Elo (pure)
-  db.py         users, pair ratings and the set log, as files in data/db/
+  db.py         users, pair ratings and the set log, in SQLite (data/db/schnaps.db)
   deal.py       one deal on the pyspiel engine; each seat's view
   bots.py       the bot catalog (Bologna, Firenze, Verona, Napoli; Random
                 for tests)
@@ -312,6 +389,7 @@ models/basic_player/    the Basic player (four networks plus the bidder)
 models/large_player/    the Large player (the bigger Normal network)
 models/mixed_player/    the 2a player (one network for every contract)
 scripts/        install, build, start, test
+deploy/         the Docker image, docker-compose.yml and Caddyfile for a server
 ```
 
 ## Card pictures
@@ -379,7 +457,5 @@ Both come from `Docker/open_spiel` (its venv and `build/python`).
 
 - Elena as a selectable bot: one entry in `bots.py`.
 - Saving tables across restarts (accounts and ratings are saved).
-- A real database (the JSON files are fine for a family LAN).
-- A history page from the set log (`data/db/sets.jsonl`).
-- Docker packaging.
+- A history page from the set log (the `sets` table in `data/db/schnaps.db`).
 - Chat.

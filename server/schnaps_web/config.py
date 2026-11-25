@@ -31,6 +31,10 @@ class Settings:
     db_dir: the database's directory (db.py: users, ratings, the log of
       sets); empty keeps it in memory. Empty here, so tests never touch
       the real one; from_env() defaults it to data/db.
+    login_rate: the most login and register requests one client address
+      may make in any 60 seconds (more get 429); 0: no limit (the LAN
+      default). Behind a proxy, uvicorn takes the address from
+      X-Forwarded-For only from the proxies FORWARDED_ALLOW_IPS trusts.
   """
 
   host: str = "0.0.0.0"
@@ -45,6 +49,7 @@ class Settings:
   deal_pause: float = 5.0
   max_tables: int = 50
   db_dir: str = ""
+  login_rate: int = 0
 
 
 #: Where the site keeps its database unless SCHNAPS_WEB_DB_DIR says otherwise.
