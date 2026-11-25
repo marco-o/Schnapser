@@ -21,8 +21,14 @@ What a sampled deal respects:
   * must-beat: a seat that followed suit without beating the best card of
     the led suit (when no trump had been played on it) has no higher card of
     that suit; one that trumped without overtrumping has no higher trump.
-What it ignores: what the bidding says about the hands (every consistent
-deal is equally likely).
+What the bidding says: in a Lomt, a seat other than the declarer weighs
+each sampled deal by how often the declarer's whole hand (the cards it holds
+in the sample and those it has played) made a Lomt in the site's played
+results (game/played_table.json, smoothed). It draws `pool` times as many
+deals as it solves and keeps `n_samples` of them in proportion to that
+weight (sampling-importance-resampling), so the hands people call Lomt on
+count most. Everywhere else every consistent deal is equally likely (the
+bids of a Normal game, the passes, are not read).
 
 Known weaknesses of the method: it assumes it will know every hand after
 this move, and that its partner does too, so it overrates plays that need
@@ -34,6 +40,9 @@ every action alike), as the solver gives them.
 
 from __future__ import annotations
 
+import functools
+import json
+import os
 import random
 from typing import Optional
 
@@ -41,6 +50,36 @@ from schnaps_web.game import oracle
 
 N_PLAYER = oracle.N_PLAYER
 N_RANK = oracle.N_RANK
+
+
+#: The played-results table beside this module.
+PLAYED_TABLE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "played_table.json")
+
+
+@functools.lru_cache(maxsize=None)
+def lomt_rates(path: str = PLAYED_TABLE) -> dict[int, float]:
+  """{plain hand class key: smoothed Lomt made rate} over every seat of the
+  played table ((wins + 0.5) / (n + 1)); {} when there is no table."""
+  if not os.path.exists(path):
+    return {}
+  with open(path) as f:
+    t = json.load(f)["games"]["lomt"]
+  n: dict[int, float] = {}
+  w: dict[int, float] = {}
+  for k, kn, kw in zip(t["keys"], t["n"], t["wins"]):
+    n[k // 4] = n.get(k // 4, 0.0) + kn
+    w[k // 4] = w.get(k // 4, 0.0) + kw
+  return {k: (w[k] + 0.5) / (n[k] + 1.0) for k in n}
+
+
+def plain_key(mask: int) -> int:
+  """A hand's class key, suits sorted by their rank masks (bidding.hand_keys'
+  plain key)."""
+  masks = [(mask >> (s * N_RANK)) & ((1 << N_RANK) - 1) for s in range(oracle.N_SUIT)]
+  k = 0
+  for m in sorted(masks, reverse=True):
+    k = k * 32 + m
+  return k
 
 
 def _suit_cards(s: int) -> set[int]:
@@ -205,10 +244,38 @@ class Searcher:
     failed_samples: draws that found no consistent deal (should stay 0).
   """
 
-  def __init__(self, n_samples: int = 20, seed: int = 0):
+  def __init__(self, n_samples: int = 20, seed: int = 0, bid_inference: bool = True,
+               pool: int = 4):
     self.n_samples = n_samples
     self.rng = random.Random(seed)
     self.failed_samples = 0
+    self.bid_inference = bid_inference
+    self.pool = pool
+
+  def _deals(self, rules, plays, hand, seat) -> list[tuple[int, ...]]:
+    """The sampled deals to solve (module doc): uniform, or resampled by
+    the declarer's Lomt rate."""
+    rates = lomt_rates() if self.bid_inference else {}
+    weigh = rates and rules.contract == oracle.LOMT and seat != rules.declarer
+    draws = self.n_samples * (self.pool if weigh else 1)
+    deals = []
+    for _ in range(draws):
+      held = sample_hands(rules, plays, hand, seat, self.rng)
+      if held is None:
+        self.failed_samples += 1
+      else:
+        deals.append(held)
+    if not weigh or not deals:
+      return deals
+    d = rules.declarer
+    played = 0
+    for p, a in plays:
+      if p == d:
+        played |= 1 << card_of(a)
+    weights = [rates.get(plain_key(h[d] | played), 0.0) for h in deals]
+    if sum(weights) <= 0:
+      return deals[: self.n_samples]
+    return self.rng.choices(deals, weights=weights, k=self.n_samples)
 
   def action_values(self, state, seat: int) -> dict[int, float]:
     """Each legal action's mean value for partnership {0, 2} over the
@@ -221,12 +288,11 @@ class Searcher:
     legal = oracle.play_legal(rules, pos.play)
     total = {a: 0.0 for a in legal}
     n = 0
-    for _ in range(self.n_samples):
-      held = sample_hands(rules, plays, hand, seat, self.rng)
-      if held is None:
-        self.failed_samples += 1
-        continue
-      vals = oracle.PlaySolver(rules).action_values(replay(rules, held, plays))
+    solved: dict[tuple[int, ...], dict[int, float]] = {}
+    for held in self._deals(rules, plays, hand, seat):
+      if held not in solved:  # a resampled deal can come back
+        solved[held] = oracle.PlaySolver(rules).action_values(replay(rules, held, plays))
+      vals = solved[held]
       for a in legal:
         total[a] += vals[a]
       n += 1

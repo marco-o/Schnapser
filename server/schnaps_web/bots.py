@@ -184,16 +184,17 @@ class SearchBot:
     bidder: plays every move outside the card play (the trump choice and
       the bidding).
     n_samples: deals sampled per card-play decision.
+    bid_inference: weigh the deals by what the bidding says (search.py).
   """
 
   def __init__(self, bidder, n_samples: int = 20, name: str = "napoli",
-               label: str = "Napoli", seed: int = 0):
+               label: str = "Napoli", seed: int = 0, bid_inference: bool = True):
     from schnaps_web.game import search  # pylint: disable=g-import-not-at-top
 
     self.name = name
     self.label = label
     self._bidder = bidder
-    self._searcher = search.Searcher(n_samples, seed)
+    self._searcher = search.Searcher(n_samples, seed, bid_inference=bid_inference)
     self._lock = threading.Lock()
 
   def choose(self, state: pyspiel.State, seat: int, set_need=None) -> int:

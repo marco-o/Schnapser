@@ -129,3 +129,21 @@ def test_a_first_trick_decision_is_quick_enough(game):
   per = (time.perf_counter() - t) / len(firsts)
   print(f"opening lead: {per:.2f} s per decision at 20 samples")
   assert per < 10
+
+
+def test_a_lomt_defender_samples_lomt_worthy_declarer_hands():
+  """Against a Lomt the deals resampled by the bidding give the declarer
+  hands that made Lomt more often than uniform deals do."""
+  rates = search.lomt_rates()
+  assert rates
+  rules = oracle.Rules(trump=0, contract=oracle.LOMT, declarer=0)
+  hand = sum(1 << c for c in (1 * 5 + 0, 1 * 5 + 1, 2 * 5 + 0, 3 * 5 + 0, 3 * 5 + 1))
+
+  def mean_rate(bid_inference):
+    searcher = search.Searcher(400, seed=4, bid_inference=bid_inference)
+    deals = searcher._deals(rules, [], hand, 1)  # pylint: disable=protected-access
+    assert len(deals) == 400
+    return sum(rates[search.plain_key(h[0])] for h in deals) / len(deals)
+
+  uniform, weighted = mean_rate(False), mean_rate(True)
+  assert weighted > uniform + 0.05, (uniform, weighted)
