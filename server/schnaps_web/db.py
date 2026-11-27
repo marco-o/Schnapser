@@ -24,6 +24,13 @@ A finished set's log row and its rating change are written in one
 transaction. One server process owns the file. Keep it on a local disk
 (not a network share: SQLite needs working file locks).
 
+The admin. The account named ADMIN ("admin") may download the whole
+database file and replace it with another (Db.export_file, Db.replace_file;
+app.py's /api/admin/database). Nobody can register that name from the site:
+the account is made, or its password reset, at startup from
+settings.admin_password (Db.ensure_admin). Replacing the database first
+copies the current one to backups/ beside it.
+
 Before SQLite the database was three JSON files in the same directory
 (users.json, ratings.json, sets.jsonl). When schnaps.db does not exist yet
 and those files do, they are imported once (Db.import_json) and then left
@@ -36,6 +43,7 @@ import json
 import os
 import secrets
 import sqlite3
+import tempfile
 import threading
 import time
 from typing import Any, Optional
@@ -52,6 +60,12 @@ FILE = "schnaps.db"
 
 #: The schema's version (PRAGMA user_version).
 SCHEMA_VERSION = 1
+
+#: The one account that may download and replace the database.
+ADMIN = "admin"
+
+#: How every SQLite file begins.
+SQLITE_HEADER = b"SQLite format 3\x00"
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
@@ -90,6 +104,23 @@ CREATE INDEX IF NOT EXISTS sets_time ON sets(time);
 
 class AccountError(ValueError):
   """A registration or login the database refuses."""
+
+
+class DatabaseFileError(ValueError):
+  """An uploaded file that is not a usable database of this site."""
+
+
+def _columns(conn: sqlite3.Connection) -> dict[str, set[str]]:
+  """{table: its column names} of a database."""
+  tables = [
+      r[0] for r in conn.execute(
+          "SELECT name FROM sqlite_master WHERE type = 'table'"
+      )
+  ]
+  return {
+      t: {r[1] for r in conn.execute(f'PRAGMA table_info("{t}")')}
+      for t in tables
+  }
 
 
 def now() -> str:
@@ -225,6 +256,8 @@ class Db:
   def register(self, username: Any, password: Any) -> tuple[str, str]:
     """A new account; returns (username, device key)."""
     name = clean_username(username)
+    if _lower(name) == ADMIN:
+      raise AccountError("that username is taken")
     if self.is_registered(name):
       raise AccountError("that username is taken")
     if not isinstance(password, str) or len(password) < PASSWORD_MIN:
@@ -258,6 +291,135 @@ class Db:
       raise AccountError("wrong username or password")
     with self._lock:
       return user["name"], self._new_key(user["lower"])
+
+  def ensure_admin(self, password: str) -> None:
+    """Makes the ADMIN account with `password`, or resets its password to
+    it (forgetting its devices) when it differs. An empty password does
+    nothing: an admin account already there stays as it is."""
+    if not password:
+      return
+    if len(password) < PASSWORD_MIN or len(password) > PASSWORD_MAX:
+      raise AccountError(
+          f"the admin password needs {PASSWORD_MIN} to {PASSWORD_MAX} characters"
+      )
+    with self._lock:
+      user = self._user(ADMIN)
+      if user is not None and hmac.compare_digest(
+          user["hash"],
+          _hash_password(password, bytes.fromhex(user["salt"]), user["iterations"]),
+      ):
+        return
+      salt = secrets.token_bytes(16)
+      hashed = _hash_password(password, salt, ITERATIONS)
+      with self._conn:
+        if user is None:
+          self._conn.execute(
+              "INSERT INTO users (lower, name, created, salt, hash,"
+              " iterations) VALUES (?, ?, ?, ?, ?, ?)",
+              (ADMIN, ADMIN, now(), salt.hex(), hashed, ITERATIONS),
+          )
+        else:
+          self._conn.execute(
+              "UPDATE users SET salt = ?, hash = ?, iterations = ?"
+              " WHERE lower = ?",
+              (salt.hex(), hashed, ITERATIONS, ADMIN),
+          )
+          self._conn.execute("DELETE FROM device_keys WHERE user = ?", (ADMIN,))
+
+  @staticmethod
+  def is_admin(username: Optional[str]) -> bool:
+    """Whether `username` is the admin account."""
+    return isinstance(username, str) and _lower(username) == ADMIN
+
+  # -- the whole file (admin) ------------------------------------------------
+
+  def export_file(self) -> bytes:
+    """A consistent copy of the whole database, as SQLite file bytes
+    (SQLite's online backup, so sets being written meanwhile are either in
+    it or not, never half)."""
+    with tempfile.TemporaryDirectory() as tmp:
+      path = os.path.join(tmp, FILE)
+      dst = sqlite3.connect(path)
+      try:
+        with self._lock:
+          self._conn.backup(dst)
+      finally:
+        dst.close()
+      with open(path, "rb") as f:
+        return f.read()
+
+  def replace_file(self, data: bytes, admin_password: str = "") -> dict:
+    """Replaces the whole database with the SQLite file `data`.
+
+    The file must be a sound SQLite database with this site's tables and
+    columns and a schema version no newer than SCHEMA_VERSION; otherwise
+    DatabaseFileError and nothing changes. The current database is first
+    copied to backups/schnaps-<UTC time>.db beside it (on disk only). The
+    admin account is then made sure of again (ensure_admin), so an
+    uploaded file cannot lock the admin out while admin_password is set.
+
+    Returns:
+      {"users", "pairs", "sets"}: how many the new database holds, and
+      "backup": the copy's path ("" in memory).
+    """
+    if not data.startswith(SQLITE_HEADER):
+      raise DatabaseFileError("not an SQLite database file")
+    with tempfile.TemporaryDirectory() as tmp:
+      path = os.path.join(tmp, "upload.db")
+      with open(path, "wb") as f:
+        f.write(data)
+      src = sqlite3.connect(path)
+      try:
+        try:
+          ok = src.execute("PRAGMA integrity_check").fetchone()[0]
+          version = src.execute("PRAGMA user_version").fetchone()[0]
+          have = _columns(src)
+        except sqlite3.DatabaseError as e:
+          raise DatabaseFileError(f"not a usable database: {e}") from None
+        if ok != "ok":
+          raise DatabaseFileError(f"the database is damaged: {ok}")
+        if version > SCHEMA_VERSION:
+          raise DatabaseFileError(
+              f"the database is from a newer site (schema {version}, this "
+              f"site knows {SCHEMA_VERSION})"
+          )
+        ref = sqlite3.connect(":memory:")
+        ref.executescript(_SCHEMA)
+        want = _columns(ref)
+        ref.close()
+        for table, cols in want.items():
+          if table.startswith("sqlite_"):
+            continue
+          missing = cols - have.get(table, set())
+          if missing:
+            raise DatabaseFileError(
+                f"table {table} is missing or lacks {sorted(missing)}"
+            )
+        backup = ""
+        with self._lock:
+          if self._dir:
+            folder = os.path.join(self._dir, "backups")
+            os.makedirs(folder, exist_ok=True)
+            stamp = time.strftime("%Y%m%d-%H%M%S", time.gmtime())
+            backup = os.path.join(folder, f"schnaps-{stamp}.db")
+            keep = sqlite3.connect(backup)
+            try:
+              self._conn.backup(keep)
+            finally:
+              keep.close()
+          src.backup(self._conn)
+          self._conn.execute("PRAGMA foreign_keys = ON")
+          self._conn.executescript(_SCHEMA)
+          self._conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+          self._conn.commit()
+          self.ensure_admin(admin_password)
+          counts = {
+              t: self._conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
+              for t in ("users", "pairs", "sets")
+          }
+      finally:
+        src.close()
+    return {**counts, "backup": backup}
 
   def _new_key(self, lower: str) -> str:
     key = secrets.token_urlsafe(24)

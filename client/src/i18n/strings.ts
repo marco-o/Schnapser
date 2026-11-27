@@ -125,6 +125,19 @@ export const STRINGS = {
     it: 'Accedi o registrati',
   },
   username: {en: 'Username', de: 'Benutzername', it: 'Nome utente'},
+  adminDatabase: {en: 'Database:', de: 'Datenbank:', it: 'Database:'},
+  adminDownload: {en: 'Download', de: 'Herunterladen', it: 'Scarica'},
+  adminUpload: {en: 'Upload…', de: 'Hochladen…', it: 'Carica…'},
+  adminUploadConfirm: {
+    en: 'Replace the whole database with {file}? Every account, rating and set now on the site is replaced (the server keeps a backup of the current one).',
+    de: 'Die ganze Datenbank durch {file} ersetzen? Alle Konten, Wertungen und Sätze auf der Seite werden ersetzt (der Server behält eine Sicherung der jetzigen).',
+    it: "Sostituire l'intero database con {file}? Tutti gli account, i punteggi e i set ora sul sito vengono sostituiti (il server tiene una copia di quello attuale).",
+  },
+  adminUploaded: {
+    en: 'Database replaced: {users} users, {pairs} pairs, {sets} sets.',
+    de: 'Datenbank ersetzt: {users} Benutzer, {pairs} Paare, {sets} Sätze.',
+    it: 'Database sostituito: {users} utenti, {pairs} coppie, {sets} set.',
+  },
   password: {en: 'Password', de: 'Passwort', it: 'Password'},
   logIn: {en: 'Log in', de: 'Anmelden', it: 'Accedi'},
   register: {en: 'Register', de: 'Registrieren', it: 'Registrati'},
@@ -493,6 +506,16 @@ export const STRINGS = {
     en: 'you already have a seat at this table',
     de: 'Du hast an diesem Tisch schon einen Platz',
     it: 'Hai già un posto a questo tavolo',
+  },
+  errNotAdmin: {
+    en: 'only the admin may do this',
+    de: 'Das darf nur der Admin',
+    it: "Solo l'amministratore può farlo",
+  },
+  errFileTooLarge: {
+    en: 'the file is too large',
+    de: 'Die Datei ist zu groß',
+    it: 'Il file è troppo grande',
   },
   errTooManyAttempts: {
     en: 'too many attempts; try again in a minute',

@@ -7,8 +7,9 @@
 // - A guest: the nickname box, as before accounts existed (unrated).
 // Log in or register opens a small username + password form; a login
 // remembers the account on this device (net/accounts.ts).
+// - The account "admin" also gets Download / Upload database buttons.
 
-import {type JSX, useState} from 'react';
+import {type JSX, useRef, useState} from 'react';
 
 import type {Key, Params} from '../i18n/strings.ts';
 import {
@@ -17,6 +18,7 @@ import {
   api,
   ApiError,
   forgetAccount,
+  isAdmin,
   rememberAccount,
 } from '../net/api.ts';
 
@@ -42,6 +44,27 @@ export function AccountCard({
   const [form, setForm] = useState(false);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const fileInput = useRef<HTMLInputElement>(null);
+
+  const download = (a: Account) =>
+    run(async () => {
+      const {blob, name} = await api.downloadDatabase(a.key);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = name;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 10_000);
+    });
+
+  const upload = (a: Account, file: File | undefined) => {
+    if (fileInput.current) fileInput.current.value = '';
+    if (!file || !window.confirm(tr('adminUploadConfirm', {file: file.name}))) return;
+    run(async () => {
+      const n = await api.uploadDatabase(a.key, file);
+      window.alert(tr('adminUploaded', {users: n.users, pairs: n.pairs, sets: n.sets}));
+    });
+  };
 
   const pick = (a: Account) =>
     run(async () => {
@@ -127,6 +150,28 @@ export function AccountCard({
             {tr('logOut')}
           </button>
         </div>
+        {isAdmin(who.username) && (
+          <div className="site-row">
+            <span className="site-muted">{tr('adminDatabase')}</span>
+            <button type="button" className="button button--small" onClick={() => download(who)}>
+              {tr('adminDownload')}
+            </button>
+            <button
+              type="button"
+              className="button button--small"
+              onClick={() => fileInput.current?.click()}
+            >
+              {tr('adminUpload')}
+            </button>
+            <input
+              ref={fileInput}
+              type="file"
+              accept=".db,.sqlite,.sqlite3,application/vnd.sqlite3"
+              hidden
+              onChange={e => upload(who, e.target.files?.[0])}
+            />
+          </div>
+        )}
       </section>
     );
   }

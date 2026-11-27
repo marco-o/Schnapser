@@ -235,6 +235,43 @@ async function call<T>(
   return data as T;
 }
 
+/** The detail of a failed response (FastAPI's {detail}), else its status text. */
+async function failure(response: Response): Promise<ApiError> {
+  const data: unknown = await response.json().catch(() => null);
+  const detail =
+    data !== null && typeof data === 'object' && 'detail' in data
+      ? String((data as {detail: unknown}).detail)
+      : response.statusText;
+  return new ApiError(detail, response.status);
+}
+
+/** The admin account (the only one that may download and replace the database). */
+export const ADMIN = 'admin';
+export const isAdmin = (username: string) => username.trim().toLowerCase() === ADMIN;
+
+/** The admin's copy of the whole database: the SQLite file and its name. */
+async function downloadDatabase(key: string): Promise<{blob: Blob; name: string}> {
+  const response = await fetch('/api/admin/database', {headers: {'X-User-Key': key}});
+  if (!response.ok) throw await failure(response);
+  const disposition = response.headers.get('Content-Disposition') ?? '';
+  const name = /filename="([^"]+)"/.exec(disposition)?.[1] ?? 'schnaps.db';
+  return {blob: await response.blob(), name};
+}
+
+/** Replaces the whole database with an SQLite file (the server keeps a backup). */
+async function uploadDatabase(
+  key: string,
+  file: Blob,
+): Promise<{users: number; pairs: number; sets: number}> {
+  const response = await fetch('/api/admin/database', {
+    method: 'PUT',
+    headers: {'X-User-Key': key, 'Content-Type': 'application/vnd.sqlite3'},
+    body: file,
+  });
+  if (!response.ok) throw await failure(response);
+  return (await response.json()) as {users: number; pairs: number; sets: number};
+}
+
 /** Who sits down: a guest's nickname, or an account (by its key). */
 export type Sitter = {readonly nickname: string} | {readonly account: Account};
 
@@ -255,6 +292,8 @@ export const api = {
   /** Checks a device key (ApiError 401 when the server no longer knows it). */
   me: (key: string) => call<{username: string}>('GET', '/api/me', undefined, null, key),
   logout: (key: string) => call('POST', '/api/logout', {}, null, key),
+  downloadDatabase,
+  uploadDatabase,
   create: (name: string, who: Sitter, seat: number, lang: Lang) => {
     const s = sitter(who);
     return call<{id: string; token: string}>(

@@ -9,6 +9,12 @@ device's key in X-User-Key):
          in 60 seconds, when login_rate is set)
   GET    /api/me                            (X-User-Key) -> {username}
   POST   /api/logout                        (X-User-Key) forget this device
+  GET    /api/admin/database                (X-User-Key of "admin") the whole
+         database, an SQLite file to save (db.export_file)
+  PUT    /api/admin/database                (X-User-Key of "admin", body: an
+         SQLite file, at most MAX_DATABASE_UPLOAD bytes) replace the whole
+         database; the old one goes to backups/ -> {users, pairs, sets}
+         (400: not a database of this site; 403: not the admin)
   GET    /api/ratings                       the rated pairs, best first
   GET    /api/bots                          the bot catalog
   GET    /api/tables                        the lobby's tables
@@ -62,6 +68,13 @@ from schnaps_web import table as table_lib
 
 #: The 429 message (the client translates it: errTooManyAttempts).
 TOO_MANY_ATTEMPTS = "too many attempts; try again in a minute"
+
+#: The 403 message of the admin calls (the client translates it: errNotAdmin).
+ONLY_ADMIN = "only the admin may do this"
+
+#: The largest database file the admin may upload (deploy/Caddyfile allows
+#: the same on that path).
+MAX_DATABASE_UPLOAD = 100 * 1024 * 1024
 
 
 class RateLimit:
@@ -132,6 +145,7 @@ def create_app(
       raise fastapi.HTTPException(404, "no such table") from None
 
   db = lobby.db
+  db.ensure_admin(settings.admin_password)
 
   def guarded(fn, *args, **kwargs):
     try:
@@ -198,6 +212,50 @@ def create_app(
   async def logout(x_user_key: Optional[str] = fastapi.Header(None)):
     db.logout(x_user_key)
     return {"ok": True}
+
+  def admin_of(key: Optional[str]) -> str:
+    """The admin's username; 401 without a known key, 403 for others."""
+    user = user_of(key)
+    if user is None:
+      raise fastapi.HTTPException(401, "unknown account; log in again")
+    if not db.is_admin(user):
+      raise fastapi.HTTPException(403, ONLY_ADMIN)
+    return user
+
+  @app.get("/api/admin/database")
+  async def download_database(x_user_key: Optional[str] = fastapi.Header(None)):
+    admin_of(x_user_key)
+    data = await asyncio.to_thread(db.export_file)
+    stamp = time.strftime("%Y%m%d-%H%M%S", time.gmtime())
+    return responses.Response(
+        data,
+        media_type="application/vnd.sqlite3",
+        headers={
+            "Content-Disposition": f'attachment; filename="schnaps-{stamp}.db"',
+            "Cache-Control": "no-store",
+        },
+    )
+
+  @app.put("/api/admin/database")
+  async def upload_database(
+      request: fastapi.Request, x_user_key: Optional[str] = fastapi.Header(None)
+  ):
+    admin_of(x_user_key)
+    chunks, size = [], 0
+    async for chunk in request.stream():
+      size += len(chunk)
+      if size > MAX_DATABASE_UPLOAD:
+        raise fastapi.HTTPException(413, "the file is too large")
+      chunks.append(chunk)
+    try:
+      counts = await asyncio.to_thread(
+          db.replace_file, b"".join(chunks), settings.admin_password
+      )
+    except db_lib.DatabaseFileError as e:
+      raise fastapi.HTTPException(400, str(e)) from None
+    print(f"Database replaced by the admin; the old one is in {counts['backup']}",
+          flush=True)
+    return {k: counts[k] for k in ("users", "pairs", "sets")}
 
   _add_ratings(app, db)
 

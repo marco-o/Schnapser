@@ -12,8 +12,14 @@
 	@apidocs path /docs* /redoc* /openapi.json
 	respond @apidocs 404
 
-	request_body {
+	# Small requests everywhere, except the admin's database upload
+	# (app.MAX_DATABASE_UPLOAD).
+	@small not path /api/admin/database
+	request_body @small {
 		max_size 64KB
+	}
+	request_body /api/admin/database {
+		max_size 100MB
 	}
 
 	header {
