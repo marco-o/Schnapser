@@ -145,7 +145,6 @@ def create_app(
       raise fastapi.HTTPException(404, "no such table") from None
 
   db = lobby.db
-  db.ensure_admin(settings.admin_password)
 
   def guarded(fn, *args, **kwargs):
     try:
@@ -248,9 +247,7 @@ def create_app(
         raise fastapi.HTTPException(413, "the file is too large")
       chunks.append(chunk)
     try:
-      counts = await asyncio.to_thread(
-          db.replace_file, b"".join(chunks), settings.admin_password
-      )
+      counts = await asyncio.to_thread(db.replace_file, b"".join(chunks))
     except db_lib.DatabaseFileError as e:
       raise fastapi.HTTPException(400, str(e)) from None
     print(f"Database replaced by the admin; the old one is in {counts['backup']}",

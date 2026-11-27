@@ -50,13 +50,13 @@ say who you are (an account, or a guest nickname), and then:
 - **The admin** is the account named `admin`, the only one that may
   download the whole database and load another in its place (two buttons
   under its name in the lobby; `GET` / `PUT /api/admin/database`). Nobody
-  can register that name from the site: the account is made, or its
-  password reset, at startup from `SCHNAPS_WEB_ADMIN_PASSWORD` (no admin
-  when it is unset). A loaded file must be a database of this site (the
-  same tables, a schema no newer, not damaged); the database it replaces
-  is first copied to `backups/schnaps-<UTC time>.db` beside it, and the
-  admin account is made sure of again, so a loaded file can't lock the
-  admin out.
+  can register that name from the site. The account is made, or its
+  password reset, with a command on the machine that runs the site (see
+  "Setting the admin password" below). A loaded file must be a database of
+  this site (the same tables, a schema no newer, not damaged); the
+  database it replaces is first copied to `backups/schnaps-<UTC time>.db`
+  beside it, and the admin account stays as it was (password and logged-in
+  devices), so a loaded file can't lock the admin out.
 
 **How a match runs:**
 
@@ -208,8 +208,21 @@ Settings are environment variables `SCHNAPS_WEB_<NAME>`, for example
 `server/schnaps_web/config.py`. `SCHNAPS_WEB_LOGIN_RATE=10` allows at most
 10 logins or registrations per address in any minute (more get "too many
 attempts"); it is off (0) unless set, as on the LAN.
-`SCHNAPS_WEB_ADMIN_PASSWORD` sets the `admin` account's password (see
-"The admin" above).
+
+**Setting the admin password** (makes the `admin` account the first time,
+resets its password later and logs its devices out). It asks for the
+password twice, at least 10 characters, and stores only its hash, like
+every other account's. On the laptop:
+
+```powershell
+wsl -d Ubuntu -- bash -c ". /mnt/c/Users/marco/Documents/git/Docker/schnaps-web/scripts/env.sh && cd /mnt/c/Users/marco/Documents/git/Docker/schnaps-web/server && python -m schnaps_web.tools.set_admin"
+```
+
+On the server, from `~/schnaps`, while the site runs:
+
+```bash
+docker compose exec schnaps python -m schnaps_web.tools.set_admin
+```
 
 ## The Docker image (for a public server)
 
@@ -256,9 +269,9 @@ scp deploy/docker-compose.yml deploy/Caddyfile user@server:schnaps/
 ```bash
 cd ~/schnaps
 echo SCHNAPS_DOMAIN=schnaps.example.eu > .env
-echo SCHNAPS_WEB_ADMIN_PASSWORD=<a long password> >> .env
 mkdir -p data/db && sudo chown -R 1000:1000 data
 docker compose up -d
+docker compose exec schnaps python -m schnaps_web.tools.set_admin   # once
 ```
 
 To keep the laptop's accounts and ratings, stop the site and copy

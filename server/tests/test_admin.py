@@ -1,6 +1,7 @@
-"""The admin account and its database download / upload (db.py, app.py)."""
+"""The admin account, its database download / upload (db.py, app.py) and
+the set_admin command (tools/set_admin.py)."""
 
-import dataclasses
+import io
 import sqlite3
 
 from fastapi import testclient
@@ -10,15 +11,19 @@ from schnaps_web import app as app_lib
 from schnaps_web import bots as bots_lib
 from schnaps_web import config as config_lib
 from schnaps_web import db as db_lib
+from schnaps_web.tools import set_admin
 
 SET = {"pairs": ["b:basic+u:anna", "b:large+b:large"], "winner": 0,
        "deals": [{"number": 1}]}
 
 
-def _settings(tmp_path, password="admin-secret"):
+PASSWORD = "admin-secret"
+
+
+def _settings(tmp_path):
   return config_lib.Settings(
       bot_delay=0.0, deal_pause=0.0, client_dir="/nonexistent",
-      db_dir=str(tmp_path), admin_password=password,
+      db_dir=str(tmp_path),
   )
 
 
@@ -33,21 +38,40 @@ def test_nobody_registers_admin_from_the_site():
       db.register(name, "whatever")
 
 
-def test_the_admin_account_comes_from_the_setting():
+def test_setting_the_admin_password():
   db = db_lib.Db()
-  db.ensure_admin("")  # no password: no admin
   assert not db.is_registered("admin")
-  db.ensure_admin("first-pass")
-  _, key = db.login("admin", "first-pass")
+  with pytest.raises(db_lib.AccountError):
+    db.set_admin_password("short")
+  assert db.set_admin_password("first-pass-1") is True  # made
+  _, key = db.login("admin", "first-pass-1")
   assert db.user_of_key(key) == "admin"
-  db.ensure_admin("first-pass")  # unchanged: the devices stay logged in
+  assert db.set_admin_password("first-pass-1") is False  # same: devices stay
   assert db.user_of_key(key) == "admin"
-  db.ensure_admin("second-pass")  # changed: new password, devices forgotten
+  db.set_admin_password("second-pass-2")  # changed: devices forgotten
   assert db.user_of_key(key) is None
   with pytest.raises(db_lib.AccountError):
-    db.login("admin", "first-pass")
-  assert db.login("admin", "second-pass")[0] == "admin"
-  assert repr(config_lib.Settings(admin_password="x")).count("'x'") == 0
+    db.login("admin", "first-pass-1")
+  assert db.login("admin", "second-pass-2")[0] == "admin"
+
+
+def test_the_set_admin_command(tmp_path, monkeypatch, capsys):
+  monkeypatch.setattr("sys.stdin", io.StringIO(PASSWORD + "\n"))
+  assert set_admin.main(["--db-dir", str(tmp_path), "--stdin"]) == 0
+  assert "Made the admin account" in capsys.readouterr().out
+  assert db_lib.Db(str(tmp_path)).login("admin", PASSWORD)[0] == "admin"
+  # Asked twice; different answers change nothing.
+  answers = iter(["new-password-1", "new-password-2"])
+  monkeypatch.setattr("getpass.getpass", lambda prompt="": next(answers))
+  assert set_admin.main(["--db-dir", str(tmp_path)]) == 1
+  assert db_lib.Db(str(tmp_path)).login("admin", PASSWORD)[0] == "admin"
+  answers = iter(["new-password-1", "new-password-1"])
+  assert set_admin.main(["--db-dir", str(tmp_path)]) == 0
+  assert "Admin password set" in capsys.readouterr().out
+  assert db_lib.Db(str(tmp_path)).login("admin", "new-password-1")[0] == "admin"
+  # Too short: refused.
+  monkeypatch.setattr("sys.stdin", io.StringIO("short\n"))
+  assert set_admin.main(["--db-dir", str(tmp_path), "--stdin"]) == 1
 
 
 def test_export_and_replace_round_trip(tmp_path):
@@ -93,17 +117,30 @@ def test_replace_refuses_files_that_are_not_this_sites(tmp_path):
   assert not (tmp_path / "backups").exists()
 
 
-def test_an_uploaded_file_cannot_lock_the_admin_out(tmp_path):
+def test_an_upload_keeps_the_admin_as_it_was(tmp_path):
   db = db_lib.Db(str(tmp_path / "site"))
-  db.ensure_admin("admin-secret")
+  db.set_admin_password(PASSWORD)
+  _, key = db.login("admin", PASSWORD)
+  # A file with no admin, and one whose admin has another password.
   without_admin = db_lib.Db(str(tmp_path / "old")).export_file()
-  db.replace_file(without_admin, "admin-secret")
-  assert db.login("admin", "admin-secret")[0] == "admin"
+  other = db_lib.Db(str(tmp_path / "other"))
+  other.set_admin_password("someone-elses")
+  for data in (without_admin, other.export_file()):
+    db.replace_file(data)
+    assert db.user_of_key(key) == "admin"
+    assert db.login("admin", PASSWORD)[0] == "admin"
+    with pytest.raises(db_lib.AccountError):
+      db.login("admin", "someone-elses")
+  # With no admin before, the file's own admin comes in.
+  fresh = db_lib.Db(str(tmp_path / "fresh"))
+  fresh.replace_file(other.export_file())
+  assert fresh.login("admin", "someone-elses")[0] == "admin"
 
 
 def test_the_admin_api(tmp_path):
+  db_lib.Db(str(tmp_path)).set_admin_password(PASSWORD)
   with testclient.TestClient(app_lib.create_app(_settings(tmp_path), _bots())) as c:
-    admin = c.post("/api/login", json={"username": "admin", "password": "admin-secret"})
+    admin = c.post("/api/login", json={"username": "admin", "password": PASSWORD})
     assert admin.status_code == 200
     akey = {"X-User-Key": admin.json()["key"]}
     anna = c.post("/api/accounts", json={"username": "Anna", "password": "secret"})
@@ -137,14 +174,14 @@ def test_the_admin_api(tmp_path):
 
 def test_the_upload_has_a_size_limit(tmp_path, monkeypatch):
   monkeypatch.setattr(app_lib, "MAX_DATABASE_UPLOAD", 1000)
+  db_lib.Db(str(tmp_path)).set_admin_password(PASSWORD)
   with testclient.TestClient(app_lib.create_app(_settings(tmp_path), _bots())) as c:
-    key = c.post("/api/login", json={"username": "admin", "password": "admin-secret"}).json()["key"]
+    key = c.post("/api/login", json={"username": "admin", "password": PASSWORD}).json()["key"]
     r = c.put("/api/admin/database", headers={"X-User-Key": key}, content=b"x" * 5000)
     assert r.status_code == 413
 
 
-def test_no_admin_without_the_setting(tmp_path):
-  settings = dataclasses.replace(_settings(tmp_path), admin_password="")
-  with testclient.TestClient(app_lib.create_app(settings, _bots())) as c:
-    r = c.post("/api/login", json={"username": "admin", "password": "admin-secret"})
+def test_the_site_makes_no_admin_by_itself(tmp_path):
+  with testclient.TestClient(app_lib.create_app(_settings(tmp_path), _bots())) as c:
+    r = c.post("/api/login", json={"username": "admin", "password": PASSWORD})
     assert r.status_code == 400

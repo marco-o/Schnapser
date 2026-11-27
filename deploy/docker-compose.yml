@@ -3,9 +3,9 @@
 #
 # On the server, in the folder holding this file and the Caddyfile:
 #   echo SCHNAPS_DOMAIN=schnaps.example.eu > .env
-#   echo SCHNAPS_WEB_ADMIN_PASSWORD=<a long password> >> .env   # the "admin" account
 #   mkdir -p data/db && sudo chown -R 1000:1000 data   # the image's user
 #   docker compose up -d
+#   docker compose exec schnaps python -m schnaps_web.tools.set_admin   # once
 #
 # The site's port is not published: only Caddy reaches it, on the compose
 # network. That is also why uvicorn may trust X-Forwarded-For from any
@@ -19,8 +19,6 @@ services:
     init: true
     environment:
       FORWARDED_ALLOW_IPS: "*"
-      # The "admin" account (download / replace the database); empty: none.
-      SCHNAPS_WEB_ADMIN_PASSWORD: ${SCHNAPS_WEB_ADMIN_PASSWORD:-}
     volumes:
       - ./data:/data                # data/db/schnaps.db, data/db/backups/
     mem_limit: 3g

@@ -27,9 +27,10 @@ transaction. One server process owns the file. Keep it on a local disk
 The admin. The account named ADMIN ("admin") may download the whole
 database file and replace it with another (Db.export_file, Db.replace_file;
 app.py's /api/admin/database). Nobody can register that name from the site:
-the account is made, or its password reset, at startup from
-settings.admin_password (Db.ensure_admin). Replacing the database first
-copies the current one to backups/ beside it.
+the account is made, or its password reset, on the server with
+`python -m schnaps_web.tools.set_admin` (Db.set_admin_password). Replacing
+the database first copies the current one to backups/ beside it, and keeps
+the admin account as it was (its password and its logged-in devices).
 
 Before SQLite the database was three JSON files in the same directory
 (users.json, ratings.json, sets.jsonl). When schnaps.db does not exist yet
@@ -63,6 +64,8 @@ SCHEMA_VERSION = 1
 
 #: The one account that may download and replace the database.
 ADMIN = "admin"
+#: Its shortest password (it can replace the whole database).
+ADMIN_PASSWORD_MIN = 10
 
 #: How every SQLite file begins.
 SQLITE_HEADER = b"SQLite format 3\x00"
@@ -292,15 +295,19 @@ class Db:
     with self._lock:
       return user["name"], self._new_key(user["lower"])
 
-  def ensure_admin(self, password: str) -> None:
+  def set_admin_password(self, password: Any) -> bool:
     """Makes the ADMIN account with `password`, or resets its password to
-    it (forgetting its devices) when it differs. An empty password does
-    nothing: an admin account already there stays as it is."""
-    if not password:
-      return
-    if len(password) < PASSWORD_MIN or len(password) > PASSWORD_MAX:
+    it, forgetting its logged-in devices, when it differs.
+
+    Returns:
+      True when the account was made, False when it already existed.
+    """
+    if not isinstance(password, str) or not (
+        ADMIN_PASSWORD_MIN <= len(password) <= PASSWORD_MAX
+    ):
       raise AccountError(
-          f"the admin password needs {PASSWORD_MIN} to {PASSWORD_MAX} characters"
+          f"the admin password needs {ADMIN_PASSWORD_MIN} to {PASSWORD_MAX}"
+          " characters"
       )
     with self._lock:
       user = self._user(ADMIN)
@@ -308,7 +315,7 @@ class Db:
           user["hash"],
           _hash_password(password, bytes.fromhex(user["salt"]), user["iterations"]),
       ):
-        return
+        return False
       salt = secrets.token_bytes(16)
       hashed = _hash_password(password, salt, ITERATIONS)
       with self._conn:
@@ -325,6 +332,7 @@ class Db:
               (salt.hex(), hashed, ITERATIONS, ADMIN),
           )
           self._conn.execute("DELETE FROM device_keys WHERE user = ?", (ADMIN,))
+      return user is None
 
   @staticmethod
   def is_admin(username: Optional[str]) -> bool:
@@ -348,15 +356,16 @@ class Db:
       with open(path, "rb") as f:
         return f.read()
 
-  def replace_file(self, data: bytes, admin_password: str = "") -> dict:
+  def replace_file(self, data: bytes) -> dict:
     """Replaces the whole database with the SQLite file `data`.
 
     The file must be a sound SQLite database with this site's tables and
     columns and a schema version no newer than SCHEMA_VERSION; otherwise
     DatabaseFileError and nothing changes. The current database is first
     copied to backups/schnaps-<UTC time>.db beside it (on disk only). The
-    admin account is then made sure of again (ensure_admin), so an
-    uploaded file cannot lock the admin out while admin_password is set.
+    admin account stays as it was before (password and devices), whatever
+    the file holds, so an upload never locks the admin out; with no admin
+    before, the file's own admin account (if any) is kept.
 
     Returns:
       {"users", "pairs", "sets"}: how many the new database holds, and
@@ -407,12 +416,29 @@ class Db:
               self._conn.backup(keep)
             finally:
               keep.close()
+          admin = self._user(ADMIN)
+          admin_keys = self._conn.execute(
+              "SELECT hash, created FROM device_keys WHERE user = ?", (ADMIN,)
+          ).fetchall()
           src.backup(self._conn)
           self._conn.execute("PRAGMA foreign_keys = ON")
           self._conn.executescript(_SCHEMA)
           self._conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
           self._conn.commit()
-          self.ensure_admin(admin_password)
+          if admin is not None:
+            with self._conn:
+              self._conn.execute("DELETE FROM device_keys WHERE user = ?", (ADMIN,))
+              self._conn.execute(
+                  "INSERT OR REPLACE INTO users (lower, name, created, salt,"
+                  " hash, iterations) VALUES (?, ?, ?, ?, ?, ?)",
+                  tuple(admin[c] for c in
+                        ("lower", "name", "created", "salt", "hash", "iterations")),
+              )
+              self._conn.executemany(
+                  "INSERT OR REPLACE INTO device_keys (hash, user, created)"
+                  " VALUES (?, ?, ?)",
+                  [(k["hash"], ADMIN, k["created"]) for k in admin_keys],
+              )
           counts = {
               t: self._conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
               for t in ("users", "pairs", "sets")

@@ -35,11 +35,6 @@ class Settings:
       may make in any 60 seconds (more get 429); 0: no limit (the LAN
       default). Behind a proxy, uvicorn takes the address from
       X-Forwarded-For only from the proxies FORWARDED_ALLOW_IPS trusts.
-    admin_password: the password of the account "admin", the only one
-      that may download and replace the database (db.py). At startup the
-      account is made, or its password reset, to this; empty leaves an
-      existing admin account as it is (and makes none). Nobody can
-      register "admin" from the site.
   """
 
   host: str = "0.0.0.0"
@@ -55,7 +50,6 @@ class Settings:
   max_tables: int = 50
   db_dir: str = ""
   login_rate: int = 0
-  admin_password: str = dataclasses.field(default="", repr=False)
 
 
 #: Where the site keeps its database unless SCHNAPS_WEB_DB_DIR says otherwise.
